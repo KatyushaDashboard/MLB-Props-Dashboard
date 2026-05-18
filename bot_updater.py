@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 pyb.cache.enable()
 
 def run_pipeline():
-    print("🤖 Memulai MLB Data Pipeline...")
+    print("🤖 Memulai MLB AI Predictive Pipeline...")
     print("====================================")
     
     wib_tz = pytz.timezone('Asia/Jakarta')
@@ -14,7 +14,7 @@ def run_pipeline():
     now_est = datetime.now(wib_tz).astimezone(est_tz)
     
     # --- 1. DOWNLOAD DATA HITTER ---
-    print("⏳ [1/4] Mengunduh metrik Full Season Hitters (Savant)...")
+    print("⏳ [1/4] Mengunduh metrik Full Season Hitters...")
     try:
         barrels_df = pyb.statcast_batter_exitvelo_barrels(2026, minBBE=10)
         xstats_df = pyb.statcast_batter_expected_stats(2026, minPA=10)
@@ -27,7 +27,7 @@ def run_pipeline():
         print(f"❌ Gagal unduh data Hitter utama: {e}")
         return
 
-    # --- 2. DOWNLOAD DATA 14 HARI (Menghitung HardHit, SweetSpot, Barrel, xwOBA) ---
+    # --- 2. DOWNLOAD DATA 14 HARI ---
     print("⏳ [2/4] Membedah data pitch-by-pitch 14 hari terakhir...")
     end_dt = now_est.strftime('%Y-%m-%d')
     start_dt = (now_est - timedelta(days=14)).strftime('%Y-%m-%d')
@@ -35,38 +35,25 @@ def run_pipeline():
     try:
         recent_sc = pyb.statcast(start_dt=start_dt, end_dt=end_dt)
         if not recent_sc.empty:
-            bbe = recent_sc[recent_sc['type'] == 'X'].copy() # Hanya Batted Balls
-            
-            # Siapkan dictionary untuk agresi data secara aman
+            bbe = recent_sc[recent_sc['type'] == 'X'].copy()
             agg_dict = {}
             
-            # 1. Menghitung HardHit (>= 95 mph)
             if 'launch_speed' in bbe.columns:
                 bbe['launch_speed'] = pd.to_numeric(bbe['launch_speed'], errors='coerce').fillna(0)
                 bbe['is_hard_hit'] = (bbe['launch_speed'] >= 95).astype(int)
                 agg_dict['is_hard_hit'] = 'mean'
                 
-            # 2. Menghitung Sweet Spot (Kemiringan 8 - 32 derajat)
             if 'launch_angle' in bbe.columns:
                 bbe['launch_angle'] = pd.to_numeric(bbe['launch_angle'], errors='coerce').fillna(-999)
                 bbe['is_sweet_spot'] = ((bbe['launch_angle'] >= 8) & (bbe['launch_angle'] <= 32)).astype(int)
                 agg_dict['is_sweet_spot'] = 'mean'
                 
-            # 3. Menghitung Barrel (Jika kolomnya tersedia)
-            if 'barrel' in bbe.columns:
-                bbe['barrel'] = pd.to_numeric(bbe['barrel'], errors='coerce').fillna(0)
-                agg_dict['barrel'] = 'mean'
-                
-            # 4. Menghitung xwOBA Terkini
             if 'estimated_woba_using_speedangle' in bbe.columns:
                 bbe['estimated_woba_using_speedangle'] = pd.to_numeric(bbe['estimated_woba_using_speedangle'], errors='coerce').fillna(0)
                 agg_dict['estimated_woba_using_speedangle'] = 'mean'
 
-            # Proses Penggabungan
             if agg_dict:
                 recent_agg = bbe.groupby('batter').agg(agg_dict).reset_index()
-                
-                # Mengubah jadi persen (dikali 100)
                 rename_map = {'batter': 'player_id'}
                 if 'is_hard_hit' in recent_agg.columns:
                     recent_agg['is_hard_hit'] *= 100
@@ -74,22 +61,18 @@ def run_pipeline():
                 if 'is_sweet_spot' in recent_agg.columns:
                     recent_agg['is_sweet_spot'] *= 100
                     rename_map['is_sweet_spot'] = 'SweetSpot% (14d)'
-                if 'barrel' in recent_agg.columns:
-                    recent_agg['barrel'] *= 100
-                    rename_map['barrel'] = 'Barrel% (14d)'
                 if 'estimated_woba_using_speedangle' in recent_agg.columns:
                     rename_map['estimated_woba_using_speedangle'] = 'xwOBA (14d)'
                     
                 recent_agg.rename(columns=rename_map, inplace=True)
                 df_hitters = pd.merge(df_hitters, recent_agg, on='player_id', how='left')
                 
-                # Mengisi pemain yang tak main dengan 0
                 for col in rename_map.values():
                     if col != 'player_id':
                         df_hitters[col] = df_hitters[col].fillna(0)
                         
     except Exception as e:
-        print(f"⚠️ Melewati data 14 hari (Tidak ada sampel / error API): {e}")
+        print(f"⚠️ Melewati data 14 hari: {e}")
 
     # Rapikan nama kolom Hitter Full Season
     rename_hitter = {
@@ -101,6 +84,25 @@ def run_pipeline():
     df_hitters.rename(columns=rename_hitter, inplace=True)
     if 'Name' in df_hitters.columns:
         df_hitters['Name'] = df_hitters['Name'].apply(lambda x: ' '.join(x.split(', ')[::-1]) if isinstance(x, str) and ', ' in x else x)
+
+    # --- 2.5 MODELING ALGORITMA PREDIKSI PROYEKSI (PROPS INDEX) ---
+    print("⏳ [2.5/4] Menghitung skor probabilitas AI Model...")
+    
+    barrels = df_hitters['Barrel%'].astype(float).fillna(0)
+    xslg = df_hitters['xSLG'].astype(float).fillna(0)
+    max_ev = df_hitters['Max EV'].astype(float).fillna(100)
+    hh_14d = df_hitters['HardHit% (14d)'].astype(float).fillna(0)
+    
+    xba = df_hitters['xBA'].astype(float).fillna(0)
+    sw_14d = df_hitters['SweetSpot% (14d)'].astype(float).fillna(0)
+    xwoba = df_hitters['xwOBA'].astype(float).fillna(0)
+    
+    # Eksekusi Rumus Tertimbang
+    df_hitters['HR_Prob_Score'] = (barrels * 3.0) + (xslg * 40) + ((max_ev - 100).clip(lower=0) * 1.0) + (hh_14d * 0.1)
+    df_hitters['Hit_Prob_Score'] = (xba * 200) + (sw_14d * 0.6) + (xwoba * 50)
+    
+    df_hitters['HR_Prob_Score'] = df_hitters['HR_Prob_Score'].round(1)
+    df_hitters['Hit_Prob_Score'] = df_hitters['Hit_Prob_Score'].round(1)
 
     # --- 3. DOWNLOAD DATA PITCHER ---
     print("⏳ [3/4] Mengunduh metrik Pitchers...")
@@ -130,7 +132,7 @@ def run_pipeline():
     df_hitters.to_csv('master_hitter_2026.csv', index=False)
     df_pitchers.to_csv('master_pitcher_2026.csv', index=False)
     
-    print("✅ PIPELINE SELESAI! Data berhasil diperbarui.")
+    print("✅ PIPELINE SELESAI! AI Model Berhasil di-update.")
 
 if __name__ == "__main__":
     run_pipeline()
