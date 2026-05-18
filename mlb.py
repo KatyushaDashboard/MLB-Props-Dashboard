@@ -182,7 +182,7 @@ else:
                         if 'xBA' in h_df.columns:
                             hit_pick = h_df.sort_values(by='xBA', ascending=False).iloc[0]
                             sw_hit_text = f" | SweetSpot (14d): {hit_pick['SweetSpot% (14d)']}%" if 'SweetSpot% (14d)' in h_df.columns else ""
-                            st.caption(f"**5. Pick Over Hit:** {hit_pick['Name']} ({hit_pick['Team']}) - *xBA: {hit_pick['xBA']}{sw_hit_text}*")
+                            st.success(f"**5. Pick Over Hit:** {hit_pick['Name']} ({hit_pick['Team']}) - *xBA: {hit_pick['xBA']}{sw_hit_text}*")
 
                     # 2. 3 KATEGORI PITCHER PICKS asli
                     with col2:
