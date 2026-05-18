@@ -1,0 +1,37 @@
+name: MLB Daily Data Auto-Update
+
+on:
+  schedule:
+    # Berjalan otomatis setiap hari jam 05:00 AM UTC (Jam 12:00 Siang WIB)
+    # Kamu bisa mengubah angkanya sesuai jam rilis slate pertandingan MLB yang kamu mau
+    - cron: '0 5 * * *'
+  workflow_dispatch: # Tombol manual jika kamu ingin update instan kapan saja
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pybaseball pandas pytz
+
+    - name: Run Data Pipeline
+      run: python bot_updater.py
+
+    - name: Commit and Push if data changed
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add master_hitter_2026.csv master_pitcher_2026.csv
+        git diff-index --quiet HEAD || git commit -m "🤖 Auto-update data MLB harian"
+        git push
