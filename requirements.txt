@@ -2,3 +2,4 @@ streamlit
 pandas
 MLB-StatsAPI
 pytz
+matplotlib
