@@ -83,7 +83,7 @@ else:
     cols = st.columns(min(len(today_matchups), 6))
     for i, m in enumerate(today_matchups): cols[i % 6].info(m)
 
-    tab1, tab2, tab3 = st.tabs(["Pitcher Matchups (Allowed)", "Hitter Props", "🔥 Game-by-Game Top Picks"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Pitcher Matchups (Allowed)", "Hitter Props", "🔥 Game-by-Game Top Picks" "🚀 AI Probability Predictions"])
 
     with tab1:
         st.subheader("Pitcher Metrics Allowed")
@@ -149,6 +149,48 @@ else:
                             sw_hit_text = f" | SweetSpot (14d): {hit_pick['SweetSpot% (14d)']}%" if 'SweetSpot% (14d)' in h_df.columns else ""
                             st.success(f"**5. Pick Over Hit:** {hit_pick['Name']} ({hit_pick['Team']})\n*xBA: {hit_pick['xBA']}{sw_hit_text}*")
 
+    with tab4:
+        st.subheader("🚀 AI Prop Betting Probability Model (Game-by-Game)")
+        st.write("Sistem menyaring 10 pemain terbaik dari masing-masing tim (5 target HR & 5 target Hit) berdasarkan kalkulasi AI Model.")
+        
+        if not df_hitters.empty:
+            df_h_today = df_hitters[df_hitters['Team'].isin(playing_teams)].dropna(subset=['Team'])
+            
+            # Cek apakah kolom skor AI sudah ada di CSV
+            if 'HR_Prob_Score' in df_h_today.columns:
+                for game in game_details:
+                    with st.expander(f"🔥 AI Prediction Modeling: {game['text']}"):
+                        col_away, col_home = st.columns(2)
+                        
+                        # --- BLOK TIM AWAY ---
+                        with col_away:
+                            st.markdown(f"#### 🏟️ {game['away']} (Away Team)")
+                            away_df = df_h_today[df_h_today['Team'] == game['away']]
+                            
+                            if not away_df.empty:
+                                st.write("🎯 **Top 5 HR Probability Score:**")
+                                st.dataframe(away_df.sort_values('HR_Prob_Score', ascending=False).head(5)[['Name', 'HR_Prob_Score']], hide_index=True, use_container_width=True)
+                                
+                                st.write("🏏 **Top 5 Hit Probability Score:**")
+                                st.dataframe(away_df.sort_values('Hit_Prob_Score', ascending=False).head(5)[['Name', 'Hit_Prob_Score']], hide_index=True, use_container_width=True)
+                            else:
+                                st.info("Data pemain away belum tersedia.")
+
+                        # --- BLOK TIM HOME ---
+                        with col_home:
+                            st.markdown(f"#### 🏠 {game['home']} (Home Team)")
+                            home_df = df_h_today[df_h_today['Team'] == game['home']]
+                            
+                            if not home_df.empty:
+                                st.write("🎯 **Top 5 HR Probability Score:**")
+                                st.dataframe(home_df.sort_values('HR_Prob_Score', ascending=False).head(5)[['Name', 'HR_Prob_Score']], hide_index=True, use_container_width=True)
+                                
+                                st.write("🏏 **Top 5 Hit Probability Score:**")
+                                st.dataframe(home_df.sort_values('Hit_Prob_Score', ascending=False).head(5)[['Name', 'Hit_Prob_Score']], hide_index=True, use_container_width=True)
+                            else:
+                                st.info("Data pemain home belum tersedia.")
+            else:
+                st.warning("⚠️ Kolom AI Score belum terdeteksi. Silakan jalankan 'bot_updater.py' atau tunggu jadwal update otomatis GitHub.")                
                     with col2:
                         st.markdown("### 🎯 Pitcher Picks (O/U)")
                         if 'xBA Allowed' in p_df.columns:
@@ -161,3 +203,4 @@ else:
                             
                             fade_out = p_df.sort_values(by='xwOBA Allowed', ascending=False).iloc[0]
                             st.error(f"**3. Target UNDER Outs Recorded:**\n{fade_out['Name']} ({fade_out['Team']})\n*Rawan bocor, xwOBA Allowed: {fade_out['xwOBA Allowed']}*")
+                            
