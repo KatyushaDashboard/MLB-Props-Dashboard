@@ -56,8 +56,7 @@ def get_daily_schedule():
             
     return playing_teams, today_matchups, player_to_team, game_details
 
-# --- 3. BACA DATA LOKAL ---
-@st.cache_data
+# --- 3. BACA DATA LOKAL (Hancurkan Cache Di Sini Agar Data Selalu Fresh) ---
 def load_local_data():
     try:
         df_hitters = pd.read_csv('master_hitter_2026.csv')
@@ -104,7 +103,7 @@ else:
                 
             st.dataframe(styled_pitchers, use_container_width=True, height=500)
 
-    # --- TAB 2: HITTER (KEMBALI KE VERSI LENGKAP + SEARCH FILTER) ---
+    # --- TAB 2: HITTER ---
     with tab2:
         st.subheader("Hitter Advanced & Expected Metrics")
         if not df_hitters.empty:
@@ -133,7 +132,7 @@ else:
                 
             st.dataframe(styled_hitters, use_container_width=True, height=500)
 
-    # --- TAB 3: GAME-BY-GAME PICKS (KEMBALI KE ASLI 5 HITTER + 3 PITCHER CATEGORIES) ---
+    # --- TAB 3: GAME-BY-GAME PICKS ---
     with tab3:
         st.subheader("🤖 Rekomendasi Pick Per Pertandingan")
         st.write("Daftar Pick terbaik yang diurutkan secara matematis untuk setiap pertandingan yang berjalan hari ini.")
@@ -154,7 +153,6 @@ else:
                         
                     col1, col2 = st.columns(2)
                     
-                    # 1. 5 KATEGORI HITTER PICKS asli
                     with col1:
                         st.markdown(f"### 🏏 Hitter Picks ({game['away']} & {game['home']})")
                         
@@ -182,9 +180,8 @@ else:
                         if 'xBA' in h_df.columns:
                             hit_pick = h_df.sort_values(by='xBA', ascending=False).iloc[0]
                             sw_hit_text = f" | SweetSpot (14d): {hit_pick['SweetSpot% (14d)']}%" if 'SweetSpot% (14d)' in h_df.columns else ""
-                            st.success(f"**5. Pick Over Hit:** {hit_pick['Name']} ({hit_pick['Team']}) - *xBA: {hit_pick['xBA']}{sw_hit_text}*")
+                            st.caption(f"**5. Pick Over Hit:** {hit_pick['Name']} ({hit_pick['Team']}) - *xBA: {hit_pick['xBA']}{sw_hit_text}*")
 
-                    # 2. 3 KATEGORI PITCHER PICKS asli
                     with col2:
                         st.markdown("### 🎯 Pitcher Picks (O/U)")
                         if 'xBA Allowed' in p_df.columns:
@@ -198,7 +195,7 @@ else:
                             fade_out = p_df.sort_values(by='xwOBA Allowed', ascending=False).iloc[0]
                             st.error(f"**3. Target UNDER Outs Recorded:**\n{fade_out['Name']} ({fade_out['Team']}) - *xwOBA Allowed: {fade_out['xwOBA Allowed']}*")
 
-    # --- TAB 4: NEW BRAND AI PREDICTIONS (MODELING GAME-BY-GAME) ---
+    # --- TAB 4: AI PREDICTIONS (MODELING GAME-BY-GAME) ---
     with tab4:
         st.subheader("🚀 AI Prop Betting Probability Model (Game-by-Game)")
         st.write("Sistem menyaring 10 pemain terbaik dari masing-masing tim (5 target HR & 5 target Hit) berdasarkan kalkulasi AI Model.")
