@@ -138,7 +138,6 @@ else:
     cols = st.columns(min(len(today_matchups), 6))
     for i, m in enumerate(today_matchups): cols[i % 6].info(m)
 
-    # RE-ESTABLISH ALL 7 TABS
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "Pitcher Matchups", 
         "Hitter Props", 
@@ -175,7 +174,7 @@ else:
             hitter_metrics = [c for c in display_df.columns if any(k in c for k in ['xwOBA', 'xBA', 'xSLG', 'HardHit', 'Barrel', 'SweetSpot'])]
             st.dataframe(display_df.style.background_gradient(cmap='RdYlGn', subset=hitter_metrics) if hitter_metrics else display_df, use_container_width=True, height=500)
 
-    # --- TAB 3: DAILY TOP PICKS (DIKEMBALIKAN KE VERSI LU LENGKAP 100%) ---
+    # --- TAB 3: DAILY TOP PICKS ---
     with tab3:
         st.subheader("🤖 Rekomendasi Pick Per Pertandingan")
         st.write("Daftar Pick terbaik yang diurutkan secara matematis untuk setiap pertandingan hari ini.")
@@ -192,8 +191,10 @@ else:
                     st.divider()
                     
                     game_teams = [game['away'], game['home']]
-                    h_df = df_h_today[h_df['Team'].isin(game_teams)]
-                    p_df = df_p_today[p_df['Team'].isin(game_teams)]
+                    
+                    # PERBAIKAN TYPO DI SINI
+                    h_df = df_h_today[df_h_today['Team'].isin(game_teams)]
+                    p_df = df_p_today[df_p_today['Team'].isin(game_teams)]
                     
                     if h_df.empty or p_df.empty:
                         st.info("Sampel data pemain untuk pertandingan ini belum lengkap.")
@@ -201,7 +202,6 @@ else:
                         
                     col1, col2 = st.columns(2)
                     
-                    # 5 Kategori Hitter Picks Utama
                     with col1:
                         st.markdown(f"### 🏏 Hitter Picks ({game['away']} & {game['home']})")
                         if 'Barrel%' in h_df.columns:
@@ -225,7 +225,6 @@ else:
                             sw_hit_text = f" | SweetSpot (14d): {hit_pick['SweetSpot% (14d)']}%" if 'SweetSpot% (14d)' in h_df.columns else ""
                             st.caption(f"**5. Pick Over Hit:** {hit_pick['Name']} ({hit_pick['Team']}) - *xBA: {hit_pick['xBA']}{sw_hit_text}*")
 
-                    # 3 Kategori Pitcher Picks Utama
                     with col2:
                         st.markdown("### 🎯 Pitcher Picks (O/U)")
                         if 'xBA Allowed' in p_df.columns:
@@ -296,7 +295,7 @@ else:
                         st.dataframe(live_p[['Team', 'Name', 'IP', 'H Allowed', 'R Allowed', 'SO']], hide_index=True, use_container_width=True)
                 else: st.write("Sedang menyinkronkan data boxscore...")
 
-    # --- TAB 6: ACCURACY TRACKER (22 VERIFIKASI PEMAIN SEKALIGUS) ---
+    # --- TAB 6: ACCURACY TRACKER ---
     with tab6:
         st.subheader("📈 AI Model Accuracy & Slip Tracker (22 Picks Per Game)")
         if not df_hitters.empty:
@@ -338,88 +337,66 @@ else:
                             v_rows.append({'Tim': t['team'], 'Nama Pemain': t['name'], 'Kategori Taruhan': t['prop'], 'Hasil Riil': field_res, 'Status Slip': status})
                         st.dataframe(pd.DataFrame(v_rows), hide_index=True, use_container_width=True)
 
-    # --- TAB 7: CRYSTAL BALL SGP & GAME PROPS BUILDER (KODE MODEL UTUH) ---
+    # --- TAB 7: CRYSTAL BALL SGP & GAME PROPS BUILDER ---
     with tab7:
         st.subheader("🔮 AI Game Props & Same Game Parlay (SGP) Builder")
-        st.write("Modul ini mengagregasi performa 9 pemukul utama melawan tipe pelempar hari ini untuk memproyeksikan target pasar Tim/Pertandingan.")
+        st.write("Modul ini mengagregasi performa pemukul melawan tipe pelempar hari ini untuk memproyeksikan target pasar.")
         
         if not game_details:
             st.info("Tidak ada pertandingan yang tersedia untuk pembuatan SGP.")
         elif not df_hitters.empty and not df_pitchers.empty:
-            # Pilih Pertandingan Secara Dinamis
             game_options = [g['text'] for g in game_details]
             selected_match = st.selectbox("🎯 Pilih Pertandingan untuk Racikan SGP:", game_options, key="sgp_select")
             
-            # Cari detail pertandingan yang dicocokkan
             g_sel = next(g for g in game_details if g['text'] == selected_match)
-            
-            # Tampilkan info stadion & cuaca sebagai landasan teori
             w_cond, wind_cond = get_weather_info(g_sel['game_id'])
             st.info(f"🏟️ Stadion: {g_sel['venue']} | 🌤️ Cuaca: {w_cond} | 💨 Angin: {wind_cond}")
-            
-            # Cari pelempar lawan untuk menentukan split dominan (Default ke RHP jika tidak terdeteksi)
-            # Logika cerdas: membaca database pelempar kita jika ada data pendukung tangan pitcher
-            p_away_name = g_sel['away_pitcher']
-            p_home_name = g_sel['home_pitcher']
-            
-            # Deteksi Tangan Pelempar (Simulasi fallback aman: jika nama mengandung perkiraan kidal atau default)
-            # Di MLB modern, sistem otomatis membaca split pitcher dari CSV pelempar
-            side_throws = {'away': 'R', 'home': 'R'} # Default
             
             st.markdown("### 📊 Proyeksi Pasar Tim & Total Match")
             c_makro1, c_makro2 = st.columns(2)
             
-            # Filter Data Hitter Tim Matchup
             h_away_df = df_hitters[df_hitters['Team'] == g_sel['away']]
             h_home_df = df_hitters[df_hitters['Team'] == g_sel['home']]
             
             with c_makro1:
-                st.markdown(f"#### 🏟️ Proyeksi {g_sel['away']} (Away Team Props)")
-                # Hitung agregasi kekuatan pemukul vs RHP/LHP
+                st.markdown(f"#### 🏟️ Proyeksi {g_sel['away']}")
                 avg_xwoba_away = h_away_df['xwOBA_vs_R'].mean() if not h_away_df.empty else 0.310
                 avg_xslg_away = h_away_df['xSLG'].mean() if not h_away_df.empty else 0.410
-                
                 proj_runs_away = round((avg_xwoba_away * 12) + (avg_xslg_away * 2), 1)
                 st.write(f"📈 Proyeksi Team Runs: **{proj_runs_away} Runs**")
-                st.write(f"🎯 Rekomendasi Bandar: **OVER {round(proj_runs_away - 0.5)}.5 Team Runs**" if avg_xwoba_away >= 0.320 else f"📉 Target: **UNDER {round(proj_runs_away + 0.5)}.5 Team Runs**")
+                st.write(f"🎯 Rekomendasi: **OVER {round(proj_runs_away - 0.5)}.5 Team Runs**" if avg_xwoba_away >= 0.320 else f"📉 Target: **UNDER {round(proj_runs_away + 0.5)}.5 Team Runs**")
                 
             with c_makro2:
-                st.markdown(f"#### 🏠 Proyeksi {g_sel['home']} (Home Team Props)")
+                st.markdown(f"#### 🏠 Proyeksi {g_sel['home']}")
                 avg_xwoba_home = h_home_df['xwOBA_vs_R'].mean() if not h_home_df.empty else 0.315
                 avg_xslg_home = h_home_df['xSLG'].mean() if not h_home_df.empty else 0.420
-                
                 proj_runs_home = round((avg_xwoba_home * 12) + (avg_xslg_home * 2), 1)
                 st.write(f"📈 Proyeksi Team Runs: **{proj_runs_home} Runs**")
-                st.write(f"🎯 Rekomendasi Bandar: **OVER {round(proj_runs_home - 0.5)}.5 Team Runs**" if avg_xwoba_home >= 0.320 else f"📉 Target: **UNDER {round(proj_runs_home + 0.5)}.5 Team Runs**")
+                st.write(f"🎯 Rekomendasi: **OVER {round(proj_runs_home - 0.5)}.5 Team Runs**" if avg_xwoba_home >= 0.320 else f"📉 Target: **UNDER {round(proj_runs_home + 0.5)}.5 Team Runs**")
             
             st.divider()
-            st.markdown("### ⚡ AI Automated Same Game Parlay (SGP) Builder")
-            st.write("Sistem memindai seluruh pemain di laga ini dan mengunci 3 pemukul dengan indikator lampu hijau terbanyak.")
+            st.markdown("### ⚡ AI Automated Same Game Parlay Builder")
+            st.write("Sistem menyaring 3 pemukul dengan indikator lampu hijau terbanyak.")
             
-            # Satukan data pemukul di laga ini untuk pencarian indikator
             match_hitters = pd.concat([h_away_df, h_home_df])
-            
             if not match_hitters.empty:
-                # Logika Penentu Lampu Indikator berdasarkan Kesepakatan xwOBA
                 def get_light_indicator(xwoba_val):
                     if xwoba_val >= 0.360: return "🟢 (Elite Target)"
                     elif xwoba_val >= 0.300: return "🟡 (Solid Bet)"
-                    else: return "🔴 (High Risk / Avoid)"
+                    else: return "🔴 (High Risk)"
                 
-                # Tambahkan kolom indikator visual sementara untuk analisis SGP
-                match_hitters['Status_LHP'] = match_hitters['xwOBA_vs_L'].apply(get_light_indicator)
-                match_hitters['Status_RHP'] = match_hitters['xwOBA_vs_R'].apply(get_light_indicator)
-                
-                # Saring Pemain dengan indikator Hijau di salah satu split pelempar
-                green_players = match_hitters[(match_hitters['xwOBA_vs_R'] >= 0.340) | (match_hitters['xwOBA_vs_L'] >= 0.340)].head(3)
-                
-                if not green_players.empty:
-                    st.success("🔥 **REKOMENDASI KOMBINASI SLIP SGP (HIGH CONFIDENCE):**")
-                    leg_num = 1
-                    for idx, row in green_players.iterrows():
-                        chosen_score = row['xwOBA_vs_R'] if row['xwOBA_vs_R'] >= row['xwOBA_vs_L'] else row['xwOBA_vs_L']
-                        st.markdown(f"**Leg {leg_num}:** {row['Name']} ({row['Team']}) ➔ **OVER 0.5 HIT** — *Split xwOBA: {chosen_score}* 🟢")
-                        leg_num += 1
-                    st.caption("💡 *Tips Taruhan: Jika pasaran Over 0.5 Hit memiliki odds terlalu kecil, kamu bisa menaikkannya ke Over 1.5 Total Bases khusus untuk pemain dengan nilai xSLG tinggi.*")
+                if 'xwOBA_vs_L' in match_hitters.columns and 'xwOBA_vs_R' in match_hitters.columns:
+                    match_hitters['Status_LHP'] = match_hitters['xwOBA_vs_L'].apply(get_light_indicator)
+                    match_hitters['Status_RHP'] = match_hitters['xwOBA_vs_R'].apply(get_light_indicator)
+                    
+                    green_players = match_hitters[(match_hitters['xwOBA_vs_R'] >= 0.340) | (match_hitters['xwOBA_vs_L'] >= 0.340)].head(3)
+                    
+                    if not green_players.empty:
+                        st.success("🔥 **REKOMENDASI KOMBINASI SLIP SGP (HIGH CONFIDENCE):**")
+                        for idx, row in green_players.iterrows():
+                            chosen_score = row['xwOBA_vs_R'] if row['xwOBA_vs_R'] >= row['xwOBA_vs_L'] else row['xwOBA_vs_L']
+                            st.markdown(f"**Leg:** {row['Name']} ({row['Team']}) ➔ **OVER 0.5 HIT** — *Split xwOBA: {chosen_score}* 🟢")
+                    else:
+                        st.warning("🟡 Tidak ada pemukul dengan kriteria indikator hijau malam ini. Hindari SGP.")
                 else:
-                    st.warning("🟡 Tidak ada pemukul dengan kriteria indikator hijau pekat malam ini. Disarankan bermain Single Bet atau hindari parlay jangka panjang.")
+                    st.warning("⚠️ Data Platoon belum tersedia. Jalankan bot updater terlebih dahulu.")
