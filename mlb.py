@@ -102,7 +102,14 @@ def get_live_boxscore(game_id, away_abbr, home_abbr):
                 if b and b.get('plateAppearances', 0) > 0:
                     hitters.append({'Team': abbr, 'Name': name, 'AB': b.get('atBats', 0), 'R': b.get('runs', 0), 'H': b.get('hits', 0), 'HR': b.get('homeRuns', 0), 'RBI': b.get('rbi', 0), 'TB': b.get('totalBases', b.get('hits', 0))})
                 if p and p.get('battersFaced', 0) > 0:
-                    pitchers.append({'Team': abbr, 'Name': name, 'IP': str(p.get('inningsPitched', '0.0')), 'H Allowed': p.get('hits', 0), 'SO': p.get('strikeOuts', 0)})
+                    pitchers.append({
+                        'Team': abbr, 
+                        'Name': name, 
+                        'IP': str(p.get('inningsPitched', '0.0')), 
+                        'H Allowed': p.get('hits', 0), 
+                        'R Allowed': p.get('runs', 0), 
+                        'SO': p.get('strikeOuts', 0)
+                    })
         return pd.DataFrame(hitters), pd.DataFrame(pitchers)
     except: return pd.DataFrame(), pd.DataFrame()
 
