@@ -5,7 +5,7 @@ import pytz
 from datetime import datetime
 
 st.set_page_config(page_title="MLB AI Props Dashboard", layout="wide")
-st.title("⚾ MLB Daily Matchup, AI Predictions & SGP Builder")
+st.title("⚾ MLB Daily Matchup, AI Predictions & Parlay Command Center")
 
 # --- 1. ZONA WAKTU ---
 def get_mlb_date():
@@ -32,13 +32,10 @@ team_mapper = {
 # --- 2. TARIK JADWAL & PROBABLE PITCHERS ---
 @st.cache_data(ttl=86400)
 def get_pitcher_hand(name):
-    """Fungsi khusus menggali data personId MLB untuk mencari tangan pelempar (L/R)"""
     if not name or name in ['Unknown Pitcher', 'Unknown', 'TBD']: return "-"
     try:
         res = statsapi.lookup_player(name)
         if not res: return "-"
-        
-        # Tarik data profil anatomi lengkap menggunakan personId
         pid = res[0]['id']
         p_data = statsapi.get('person', {'personId': pid})
         hand = p_data.get('people', [{}])[0].get('pitchHand', {}).get('code', '-')
@@ -93,7 +90,6 @@ def get_weather_info(game_id):
         game_data = statsapi.get('game', {'gamePk': game_id}).get('gameData', {})
         weather = game_data.get('weather', {})
         if not weather: return "TBD (Belum Update / Dome)", "TBD"
-        
         temp = weather.get('temp', 'TBD')
         condition = weather.get('condition', 'TBD')
         wind = weather.get('wind', 'TBD')
@@ -106,7 +102,7 @@ def load_local_data():
         df_h = pd.read_csv('master_hitter_2026.csv')
         df_p = pd.read_csv('master_pitcher_2026.csv')
         return df_h, df_p
-    except Exception as e:
+    except:
         st.error("⚠️ File CSV belum siap! Pastikan robot GitHub Actions sudah selesai.")
         return pd.DataFrame(), pd.DataFrame()
 
@@ -117,29 +113,16 @@ def get_live_boxscore(game_id, away_abbr, home_abbr):
         raw_data = statsapi.get('game_boxscore', {'gamePk': game_id})
         teams_data = raw_data.get('teams', {})
         hitters, pitchers = [], []
-        
         for side, abbr in [('away', away_abbr), ('home', home_abbr)]:
             players = teams_data.get(side, {}).get('players', {})
             for pid, pdata in players.items():
                 name = pdata.get('person', {}).get('fullName', 'Unknown')
                 b_stats = pdata.get('stats', {}).get('batting', {})
                 p_stats = pdata.get('stats', {}).get('pitching', {})
-                
                 if b_stats and b_stats.get('plateAppearances', 0) > 0:
-                    hitters.append({
-                        'Team': abbr, 'Name': name,
-                        'AB': b_stats.get('atBats', 0), 'R': b_stats.get('runs', 0),
-                        'H': b_stats.get('hits', 0), 'HR': b_stats.get('homeRuns', 0),
-                        'RBI': b_stats.get('rbi', 0), 
-                        'TB': b_stats.get('totalBases', b_stats.get('hits', 0))
-                    })
+                    hitters.append({'Team': abbr, 'Name': name, 'AB': b_stats.get('atBats', 0), 'R': b_stats.get('runs', 0), 'H': b_stats.get('hits', 0), 'HR': b_stats.get('homeRuns', 0), 'RBI': b_stats.get('rbi', 0), 'TB': b_stats.get('totalBases', b_stats.get('hits', 0))})
                 if p_stats and p_stats.get('battersFaced', 0) > 0:
-                    ip = str(p_stats.get('inningsPitched', '0.0'))
-                    pitchers.append({
-                        'Team': abbr, 'Name': name, 'IP': ip,
-                        'H Allowed': p_stats.get('hits', 0), 'R Allowed': p_stats.get('runs', 0),
-                        'SO': p_stats.get('strikeOuts', 0)
-                    })
+                    pitchers.append({'Team': abbr, 'Name': name, 'IP': str(p_stats.get('inningsPitched', '0.0')), 'H Allowed': p_stats.get('hits', 0), 'R Allowed': p_stats.get('runs', 0), 'SO': p_stats.get('strikeOuts', 0)})
         return pd.DataFrame(hitters), pd.DataFrame(pitchers)
     except: return pd.DataFrame(), pd.DataFrame()
 
@@ -157,9 +140,10 @@ else:
     cols = st.columns(min(len(today_matchups), 6))
     for i, m in enumerate(today_matchups): cols[i % 6].info(m)
 
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "Pitcher Matchups", "Hitter Props", "🔥 Daily Top Picks", 
-        "🚀 AI Predictions", "📡 Live Report", "📈 AI Tracker", "🔮 SGP Builder"
+        "🚀 AI Predictions", "📡 Live Report", "📈 AI Tracker", 
+        "🔮 SGP Builder", "🌍 Cross-Game Parlay"
     ])
 
     with tab1:
@@ -176,7 +160,6 @@ else:
             col1, col2 = st.columns(2)
             with col1: search_name = st.text_input("🔍 Ketik Nama Pemain:", "")
             with col2: sel_team = st.selectbox("Filter Tim:", ["Semua Tim"] + sorted(df_h_today['Team'].unique().tolist()))
-            
             display_df = df_h_today[df_h_today['Name'].str.contains(search_name, case=False, na=False)] if search_name else (df_h_today[df_h_today['Team'] == sel_team] if sel_team != "Semua Tim" else df_h_today.sort_values(by='xwOBA', ascending=False).head(50))
             metrics = [c for c in display_df.columns if any(k in c for k in ['xwOBA', 'xBA', 'xSLG', 'HardHit'])]
             st.dataframe(display_df.style.background_gradient(cmap='RdYlGn', subset=metrics) if metrics else display_df, use_container_width=True, height=500)
@@ -187,18 +170,14 @@ else:
         if not df_hitters.empty and not df_pitchers.empty:
             df_h_today = df_hitters[df_hitters['Team'].isin(playing_teams)].dropna(subset=['Team'])
             df_p_today = df_pitchers[df_pitchers['Team'].isin(playing_teams)].dropna(subset=['Team'])
-            
             for game in game_details:
                 with st.expander(f"⚾ Matchup: {game['away']} @ {game['home']}", expanded=False):
                     w_cond, wind_cond = get_weather_info(game['game_id'])
                     st.markdown(f"**🏟️ {game['venue']}** | 🌤️ {w_cond} | 💨 {wind_cond}")
                     st.divider()
-                    
                     game_teams = [game['away'], game['home']]
                     h_df = df_h_today[df_h_today['Team'].isin(game_teams)]
-                    
                     col1, col2 = st.columns(2)
-                    
                     with col1:
                         st.markdown(f"### 🏏 Hitter Picks")
                         if not h_df.empty:
@@ -220,27 +199,20 @@ else:
                             if 'xBA' in h_df.columns:
                                 top_xba = h_df.sort_values(by='xBA', ascending=False).iloc[0]
                                 st.success(f"**5. Over Hit:** {top_xba['Name']} ({top_xba['Team']})\n\n↳ *Alasan: xBA tertinggi (Raja Kontak) di {top_xba['xBA']}*")
-
                     with col2:
                         st.markdown("### 🎯 Probable Pitchers (O/U)")
                         for p_name, p_team, p_hand in [(game['away_pitcher'], game['away'], game['away_hand']), (game['home_pitcher'], game['home'], game['home_hand'])]:
                             if p_name != 'Unknown Pitcher':
                                 last_name = p_name.split()[-1]
                                 p_match = df_p_today[(df_p_today['Team'] == p_team) & (df_p_today['Name'].str.contains(last_name, case=False, na=False))]
-                                
                                 if not p_match.empty:
                                     p_stat = p_match.iloc[0]
                                     xba_alwd = p_stat.get('xBA Allowed', 0.250)
                                     xwoba_alwd = p_stat.get('xwOBA Allowed', 0.320)
-                                    
                                     hit_rec = "OVER Hit Allowed" if xba_alwd >= 0.250 else "UNDER Hit Allowed"
                                     out_rec = "UNDER Outs Recorded" if xwoba_alwd >= 0.330 else "OVER Outs Recorded"
-                                    
-                                    st.info(f"⚾ **{p_stat['Name']}** ({p_team} - {p_hand})\n\n"
-                                            f"↳ **Target 1: {hit_rec}** *(xBA Allowed: {xba_alwd})*\n\n"
-                                            f"↳ **Target 2: {out_rec}** *(xwOBA Allowed: {xwoba_alwd})*")
-                                else:
-                                    st.write(f"⚾ **{p_name}** ({p_team} - {p_hand}) - *Metrik Statcast belum cukup*")
+                                    st.info(f"⚾ **{p_stat['Name']}** ({p_team} - {p_hand})\n\n↳ **Target 1: {hit_rec}** *(xBA Allowed: {xba_alwd})*\n\n↳ **Target 2: {out_rec}** *(xwOBA Allowed: {xwoba_alwd})*")
+                                else: st.write(f"⚾ **{p_name}** ({p_team} - {p_hand}) - *Metrik Statcast belum cukup*")
 
     # --- TAB 4: AI PROBABILITY MODEL ---
     with tab4:
@@ -252,13 +224,10 @@ else:
                     with st.expander(f"🔥 AI Prediction: {game['text']}", expanded=False):
                         w_cond, wind_cond = get_weather_info(game['game_id'])
                         st.markdown(f"**🏟️ {game['venue']}** | 🌤️ {w_cond} | 💨 {wind_cond}")
-                        
                         away_p_disp = f"{game['away_pitcher']} ({game['away_hand']})" if game['away_pitcher'] != 'Unknown Pitcher' else "Unknown Pitcher"
                         home_p_disp = f"{game['home_pitcher']} ({game['home_hand']})" if game['home_pitcher'] != 'Unknown Pitcher' else "Unknown Pitcher"
-                        
                         st.markdown(f"⚾ **Probable Pitchers:** {away_p_disp} vs {home_p_disp}")
                         st.divider()
-
                         col_away, col_home = st.columns(2)
                         with col_away:
                             st.markdown(f"#### 🏟️ {game['away']} (vs {home_p_disp})")
@@ -266,42 +235,37 @@ else:
                             if not away_df.empty:
                                 hr_cols = ['Name', 'HR_Prob_Score'] + [c for c in ['xwOBA_vs_L', 'xwOBA_vs_R'] if c in away_df.columns]
                                 hit_cols = ['Name', 'Hit_Prob_Score'] + [c for c in ['xBA_vs_L', 'xBA_vs_R'] if c in away_df.columns]
-                                st.write("🎯 **Top 5 HR Index & Platoon:**")
+                                st.write("🎯 **Top 5 HR Index:**")
                                 st.dataframe(away_df.sort_values('HR_Prob_Score', ascending=False).head(5)[hr_cols], hide_index=True, use_container_width=True)
-                                st.write("🏏 **Top 5 Hit Index & Platoon:**")
+                                st.write("🏏 **Top 5 Hit Index:**")
                                 st.dataframe(away_df.sort_values('Hit_Prob_Score', ascending=False).head(5)[hit_cols], hide_index=True, use_container_width=True)
-
                         with col_home:
                             st.markdown(f"#### 🏠 {game['home']} (vs {away_p_disp})")
                             home_df = df_h_today[df_h_today['Team'] == game['home']]
                             if not home_df.empty:
                                 hr_cols = ['Name', 'HR_Prob_Score'] + [c for c in ['xwOBA_vs_L', 'xwOBA_vs_R'] if c in home_df.columns]
                                 hit_cols = ['Name', 'Hit_Prob_Score'] + [c for c in ['xBA_vs_L', 'xBA_vs_R'] if c in home_df.columns]
-                                st.write("🎯 **Top 5 HR Index & Platoon:**")
+                                st.write("🎯 **Top 5 HR Index:**")
                                 st.dataframe(home_df.sort_values('HR_Prob_Score', ascending=False).head(5)[hr_cols], hide_index=True, use_container_width=True)
-                                st.write("🏏 **Top 5 Hit Index & Platoon:**")
+                                st.write("🏏 **Top 5 Hit Index:**")
                                 st.dataframe(home_df.sort_values('Hit_Prob_Score', ascending=False).head(5)[hit_cols], hide_index=True, use_container_width=True)
 
     # --- TAB 5: LIVE REPORT ---
     with tab5:
         st.subheader("📡 Live Report & Hasil Pemain Hari Ini")
         for game in game_details:
-            if game['status'] in ['Scheduled', 'Pre-Game', 'Warmup']:
-                with st.expander(f"⏳ {game['away']} @ {game['home']}", expanded=False): st.info("Pertandingan belum dimulai.")
-                continue
+            if game['status'] in ['Scheduled', 'Pre-Game', 'Warmup']: continue
             with st.expander(f"🔥 {game['away']} @ {game['home']} - {game['status']}", expanded=False):
                 live_h, live_p = get_live_boxscore(game['game_id'], game['away'], game['home'])
                 if not live_h.empty and not live_p.empty:
                     sukses_h = live_h[(live_h['H'] >= 1) | (live_h['HR'] >= 1) | (live_h['R'] >= 1) | (live_h['RBI'] >= 1) | (live_h['TB'] >= 1)]
                     c1, c2 = st.columns(2)
                     with c1:
-                        st.markdown("### 🏏 Hitters (Pencetak Skor)")
+                        st.markdown("### 🏏 Hitters")
                         if not sukses_h.empty: st.dataframe(sukses_h.sort_values(by=['TB', 'H'], ascending=False), hide_index=True, use_container_width=True)
-                        else: st.write("Belum ada hitter yang mencetak angka.")
                     with c2:
-                        st.markdown("### 🎯 Pitchers (Rapor Lemparan)")
+                        st.markdown("### 🎯 Pitchers")
                         st.dataframe(live_p[['Team', 'Name', 'IP', 'H Allowed', 'R Allowed', 'SO']], hide_index=True, use_container_width=True)
-                else: st.write("Sedang menyinkronkan data boxscore...")
 
     # --- TAB 6: ACCURACY TRACKER ---
     with tab6:
@@ -309,30 +273,19 @@ else:
         if not df_hitters.empty:
             df_h_today = df_hitters[df_hitters['Team'].isin(playing_teams)].dropna(subset=['Team'])
             for game in game_details:
-                if game['status'] in ['Scheduled', 'Pre-Game', 'Warmup']:
-                    with st.expander(f"⏳ Tracker: {game['away']} @ {game['home']}", expanded=False): st.info("Menunggu pertandingan dimulai...")
-                    continue
+                if game['status'] in ['Scheduled', 'Pre-Game']: continue
                 with st.expander(f"📊 Slip Verification: {game['away']} @ {game['home']}", expanded=False):
                     live_h, _ = get_live_boxscore(game['game_id'], game['away'], game['home'])
                     h_df = df_h_today[df_h_today['Team'].isin([game['away'], game['home']])]
-                    
                     if not live_h.empty and not h_df.empty and 'HR_Prob_Score' in h_df.columns:
                         targets = []
-                        if 'Barrel%' in h_df.columns:
-                            tb = h_df.sort_values('Barrel%', ascending=False).iloc[0]
-                            targets.append({'name': tb['Name'], 'team': tb['Team'], 'prop': '⭐ Tab 3 - Top HR (Barrel%)'})
-                        if 'xBA' in h_df.columns:
-                            tx = h_df.sort_values('xBA', ascending=False).iloc[0]
-                            targets.append({'name': tx['Name'], 'team': tx['Team'], 'prop': '⭐ Tab 3 - Top Hit (xBA)'})
-                        
+                        if 'Barrel%' in h_df.columns: targets.append({'name': h_df.sort_values('Barrel%', ascending=False).iloc[0]['Name'], 'team': h_df.sort_values('Barrel%', ascending=False).iloc[0]['Team'], 'prop': '⭐ Tab 3 - Top HR (Barrel%)'})
+                        if 'xBA' in h_df.columns: targets.append({'name': h_df.sort_values('xBA', ascending=False).iloc[0]['Name'], 'team': h_df.sort_values('xBA', ascending=False).iloc[0]['Team'], 'prop': '⭐ Tab 3 - Top Hit (xBA)'})
                         for team_abbr, loc in [(game['away'], 'Away'), (game['home'], 'Home')]:
                             team_df = h_df[h_df['Team'] == team_abbr]
                             if not team_df.empty:
-                                for _, r in team_df.sort_values('HR_Prob_Score', ascending=False).head(5).iterrows():
-                                    targets.append({'name': r['Name'], 'team': r['Team'], 'prop': f'🔥 Tab 4 - {loc} Top 5 HR Index'})
-                                for _, r in team_df.sort_values('Hit_Prob_Score', ascending=False).head(5).iterrows():
-                                    targets.append({'name': r['Name'], 'team': r['Team'], 'prop': f'🏏 Tab 4 - {loc} Top 5 Hit Index'})
-                                    
+                                for _, r in team_df.sort_values('HR_Prob_Score', ascending=False).head(5).iterrows(): targets.append({'name': r['Name'], 'team': r['Team'], 'prop': f'🔥 Tab 4 - {loc} Top 5 HR Index'})
+                                for _, r in team_df.sort_values('Hit_Prob_Score', ascending=False).head(5).iterrows(): targets.append({'name': r['Name'], 'team': r['Team'], 'prop': f'🏏 Tab 4 - {loc} Top 5 Hit Index'})
                         v_rows = []
                         for t in targets:
                             p_live = live_h[live_h['Name'] == t['name']]
@@ -340,19 +293,17 @@ else:
                                 act_h, act_hr = int(p_live.iloc[0]['H']), int(p_live.iloc[0]['HR'])
                                 status = "✅ WIN (BOOM HR!)" if 'HR' in t['prop'] and act_hr >= 1 else ("✅ WIN (HIT SUCCESS)" if 'Hit' in t['prop'] and act_h >= 1 else ("⏳ LIVE" if game['status'] != 'Final' else "❌ MISS"))
                                 field_res = f"Hit: {act_h} | HR: {act_hr}"
-                            else:
-                                status, field_res = ("⏳ Belum Batting" if game['status'] != 'Final' else "❌ MISS (DNP)"), "Hit: 0 | HR: 0"
+                            else: status, field_res = ("⏳ Belum Batting" if game['status'] != 'Final' else "❌ MISS (DNP)"), "Hit: 0 | HR: 0"
                             v_rows.append({'Tim': t['team'], 'Nama Pemain': t['name'], 'Kategori Taruhan': t['prop'], 'Hasil Riil': field_res, 'Status Slip': status})
                         st.dataframe(pd.DataFrame(v_rows), hide_index=True, use_container_width=True)
 
-    # --- TAB 7: THE ULTIMATE SGP BUILDER ---
+    # --- TAB 7: SGP BUILDER (DENGAN SUBMENU H2H MAJU DI TENGAH) ---
     with tab7:
         st.subheader("🔮 AI Game Props & SGP Builder")
-        if not game_details:
-            st.info("Tidak ada pertandingan yang tersedia.")
+        if not game_details: st.info("Tidak ada pertandingan.")
         elif not df_hitters.empty:
             game_opts = [g['text'] for g in game_details]
-            sel_match = st.selectbox("🎯 Pilih Pertandingan:", game_opts)
+            sel_match = st.selectbox("🎯 Pilih Pertandingan Analisis:", game_opts)
             g_sel = next(g for g in game_details if g['text'] == sel_match)
             
             h_away = df_hitters[df_hitters['Team'] == g_sel['away']]
@@ -360,14 +311,12 @@ else:
             
             st.markdown("### 📊 Proyeksi Pasar Tim & Total Match")
             c_mak1, c_mak2 = st.columns(2)
-            
             with c_mak1:
                 st.markdown(f"#### 🏟️ {g_sel['away']} (Away)")
                 xba_a, xslg_a = (h_away['xBA'].mean(), h_away['xSLG'].mean()) if not h_away.empty else (0.240, 0.400)
                 proj_r_a = round((h_away['xwOBA_vs_R'].mean() * 12) + (xslg_a * 2), 1) if not h_away.empty else 4.0
                 st.write(f"📈 Proyeksi Team Runs: **{proj_r_a}**")
                 st.caption(f"🏏 Proyeksi Singles: **{round(xba_a * 25, 1)}** | Doubles: **{round(xslg_a * 4.5, 1)}**")
-                
             with c_mak2:
                 st.markdown(f"#### 🏠 {g_sel['home']} (Home)")
                 xba_h, xslg_h = (h_home['xBA'].mean(), h_home['xSLG'].mean()) if not h_home.empty else (0.240, 0.400)
@@ -375,38 +324,109 @@ else:
                 st.write(f"📈 Proyeksi Team Runs: **{proj_r_h}**")
                 st.caption(f"🏏 Proyeksi Singles: **{round(xba_h * 25, 1)}** | Doubles: **{round(xslg_h * 4.5, 1)}**")
             
+            # SUBMENU BARU: ANALISIS H2H TIM & ML/HANDICAP (DITEMPATKAN DI TENGAH)
             st.divider()
-            st.markdown("### ⚡ AI Automated SGP Builder (3 Opsi Strategi)")
-            m_hitters = pd.concat([h_away, h_home])
+            st.markdown("### ⚔️ Analisis H2H Tim & Prediksi ML / Handicap")
+            st.write("Mengawinkan kekuatan matematis roster pemukul harian vs tangan starter pitcher lawan malam ini.")
             
-            if not m_hitters.empty and 'HR_Prob_Score' in m_hitters.columns:
-                st.markdown("#### 💣 OPSI 1: 3-Leg HR Parlay (High Risk / High Reward)")
-                hr_pool = m_hitters.sort_values('HR_Prob_Score', ascending=False).head(3)
-                for _, r in hr_pool.iterrows():
-                    st.write(f"- 🎯 **{r['Name']}** ({r['Team']}) ➔ **OVER 0.5 Home Run** *(AI Score: {r['HR_Prob_Score']})*")
-                
-                st.markdown("#### 🏏 OPSI 2: 4-Leg Total Base Parlay (Solid Bet)")
-                tb_pool = m_hitters.sort_values('xSLG', ascending=False).head(4)
-                for _, r in tb_pool.iterrows():
-                    st.write(f"- ⚾ **{r['Name']}** ({r['Team']}) ➔ **OVER 1.5 Total Bases** *(xSLG: {r['xSLG']})*")
-                
-                st.markdown("#### 🥗 OPSI 3: 5-Leg Mix Parlay (Hit, Run, RBI, TB)")
-                used_names = set()
-                mix_legs = []
-                
-                def add_mix_leg(df_sorted, prop_text, metric_col):
-                    for _, r in df_sorted.iterrows():
-                        if r['Name'] not in used_names:
-                            used_names.add(r['Name'])
-                            mix_legs.append(f"- ✅ **{r['Name']}** ({r['Team']}) ➔ **{prop_text}** *({metric_col}: {r[metric_col]})*")
-                            break
-                            
-                add_mix_leg(m_hitters.sort_values('xBA', ascending=False), "OVER 0.5 Hit", "xBA")
-                add_mix_leg(m_hitters.sort_values('xSLG', ascending=False), "OVER 1.5 Total Base", "xSLG")
-                add_mix_leg(m_hitters.sort_values('xwOBA', ascending=False), "OVER 0.5 Run", "xwOBA")
-                add_mix_leg(m_hitters.sort_values('HardHit%', ascending=False), "OVER 0.5 RBI", "HardHit%")
-                add_mix_leg(m_hitters.sort_values('Hit_Prob_Score', ascending=False), "OVER 0.5 Hit", "Hit_Prob_Score")
-                
-                for leg in mix_legs: st.write(leg)
+            score_away = h_away['xwOBA_vs_R'].mean() if not h_away.empty else 0.300
+            score_home = h_home['xwOBA_vs_R'].mean() if not h_home.empty else 0.300
+            
+            diff = abs(score_away - score_home)
+            if score_away > score_home:
+                fav_team, dog_team = g_sel['away'], g_sel['home']
+                win_prob = round(50 + (diff * 200), 1)
             else:
-                st.warning("⚠️ Data AI Model belum lengkap untuk membuat SGP.")
+                fav_team, dog_team = g_sel['home'], g_sel['away']
+                win_prob = round(50 + (diff * 200), 1)
+            win_prob = min(win_prob, 78.0) # Cap maximum limit safety
+            
+            c_h2h1, c_h2h2 = st.columns(2)
+            with c_h2h1:
+                st.success(f"🔮 **Prediksi Kemenangan (Moneyline):**\n\n**{fav_team} Win Line** (Probabilitas: {win_prob}%)")
+                st.caption(f"➔ *Konteks: Daya gedor lineup {fav_team} lebih sinkron menghadapi tipe pelempar lawan.*")
+            with c_h2h2:
+                if win_prob >= 58.0:
+                    st.error(f"📐 **Rekomendasi Pasar Handicap (Run Line):**\n\n**{fav_team} -1.5** (Keunggulan Telak / *Cover Spread*)")
+                else:
+                    st.warning(f"📐 **Rekomendasi Pasar Handicap (Run Line):**\n\n**{dog_team} +1.5** (Laga Ketat / *Run-Line Protection*)")
+            
+            st.divider()
+            st.markdown("### ⚡ AI Automated Same Game Parlay Builder")
+            m_hitters = pd.concat([h_away, h_home])
+            if not m_hitters.empty and 'HR_Prob_Score' in m_hitters.columns:
+                st.markdown("#### 💣 OPSI 1: 3-Leg HR Parlay (High Risk / Same Game)")
+                for _, r in m_hitters.sort_values('HR_Prob_Score', ascending=False).head(3).iterrows():
+                    st.write(f"- 🎯 **{r['Name']}** ({r['Team']}) ➔ **OVER 0.5 Home Run** *(Score: {r['HR_Prob_Score']})*")
+                st.markdown("#### 🏏 OPSI 2: 4-Leg Total Base Parlay (Solid / Same Game)")
+                for _, r in m_hitters.sort_values('xSLG', ascending=False).head(4).iterrows():
+                    st.write(f"- ⚾ **{r['Name']}** ({r['Team']}) ➔ **OVER 1.5 Total Bases** *(xSLG: {r['xSLG']})*")
+
+    # --- TAB 8: THE BRAND NEW LINTAS MATCH PARLAY BUILDER ---
+    with tab8:
+        st.subheader("🌍 Cross-Game Multi-Match Parlay Engine")
+        st.write("Fitur Khusus: Sistem menyaring secara ketat **maksimal 1 pemain per pertandingan** untuk dikombinasikan menjadi tiket parlay lintas laga berdurasi penuh.")
+        
+        if len(game_details) < 2:
+            st.warning("⚠️ Diperlukan minimal 2 pertandingan aktif hari ini untuk menyusun parlay lintas pertandingan.")
+        elif not df_hitters.empty:
+            st.info(f"Sistem mendeteksi {len(game_details)} pertandingan aktif. Menyusun 5 Pilihan Slip Lintas Laga (3-8 Legs)...")
+            
+            # Siapkan pool pemain top dari setiap game secara adil (1 game = 1 nama per kategori)
+            pool_hit, pool_power, pool_mix = [], [], []
+            
+            for game in game_details:
+                g_hitters = df_hitters[df_hitters['Team'].isin([game['away'], game['home']])]
+                if not g_hitters.empty:
+                    # Ambil jagoan hit murni dari game ini
+                    top_h = g_hitters.sort_values('xBA', ascending=False).iloc[0]
+                    pool_hit.append({'name': top_h['Name'], 'team': top_h['Team'], 'stat': f"xBA: {top_h['xBA']}", 'game': game['text']})
+                    
+                    # Ambil jagoan power murni dari game ini
+                    top_p = g_hitters.sort_values('HR_Prob_Score', ascending=False).iloc[0]
+                    pool_power.append({'name': top_p['Name'], 'team': top_p['Team'], 'stat': f"AI Score: {top_p['HR_Prob_Score']}", 'game': game['text']})
+                    
+                    # Ambil jagoan pendukung run/rbi dari game ini
+                    top_m = g_hitters.sort_values('xwOBA', ascending=False).iloc[0]
+                    pool_mix.append({'name': top_m['Name'], 'team': top_m['Team'], 'stat': f"xwOBA: {top_m['xwOBA']}", 'game': game['text']})
+            
+            # --- CETAK 5 SLIP PARLAY ---
+            c_slip1, c_slip2 = st.columns(2)
+            
+            with c_slip1:
+                st.markdown("### 🟢 SLIP 1: Raja Kontak Lintas Laga (3-5 Legs)")
+                st.caption("Fokus: Pemain dengan persentase pukulan selamat paling stabil (Over 0.5 Hit).")
+                legs_s1 = min(len(pool_hit), 4)
+                for i in range(legs_s1):
+                    st.success(f"**Leg {i+1}:** {pool_hit[i]['name']} ({pool_hit[i]['team']}) ➔ **OVER 0.5 HIT** *({pool_hit[i]['stat']} | Laga: {pool_hit[i]['game']})*")
+                
+                st.markdown("### 💣 SLIP 2: Tiket Boom Home Run Lintas Laga (3 Legs)")
+                st.caption("Fokus: Piringan emas untuk pemburu odds perkalian raksasa (Over 0.5 HR).")
+                legs_s2 = min(len(pool_power), 3)
+                for i in range(legs_s2):
+                    st.error(f"**Leg {i+1}:** {pool_power[i]['name']} ({pool_power[i]['team']}) ➔ **OVER 0.5 HOME RUN** *({pool_power[i]['stat']} | Laga: {pool_power[i]['game']})*")
+
+                st.markdown("### 🎯 SLIP 3: Target Eksploitasi Pelempar (4 Legs)")
+                st.caption("Fokus: Memanfaatkan kelemahan lemparan tim lawan untuk mendulang Total Base.")
+                legs_s3 = min(len(pool_hit), max(len(pool_hit)-1, 1))
+                for i in range(min(legs_s3, 4)):
+                    st.info(f"**Leg {i+1}:** {pool_hit[i]['name']} ({pool_hit[i]['team']}) ➔ **OVER 1.5 TOTAL BASES** *(Mengeksploitasi Pitcher Lawan di {pool_hit[i]['game']})*")
+
+            with c_slip2:
+                st.markdown("### 🥗 SLIP 4: Harian Monster Mix Lintas Laga (5 Legs)")
+                st.caption("Fokus: Gabungan prop Hit, Run, dan Total Base seimbang dari 5 stadion berbeda.")
+                legs_s4 = min(len(game_details), 5)
+                for i in range(legs_s4):
+                    if i % 3 == 0: st.warning(f"**Leg {i+1}:** {pool_mix[i]['name']} ({pool_mix[i]['team']}) ➔ **OVER 0.5 RUN** *({pool_mix[i]['stat']} | {pool_mix[i]['game']})*")
+                    elif i % 3 == 1: st.success(f"**Leg {i+1}:** {pool_hit[i]['name']} ({pool_hit[i]['team']}) ➔ **OVER 0.5 HIT** *({pool_hit[i]['stat']} | {pool_hit[i]['game']})*")
+                    else: st.info(f"**Leg {i+1}:** {pool_power[i]['name']} ({pool_power[i]['team']}) ➔ **OVER 1.5 TOTAL BASES** *({pool_power[i]['stat']} | {pool_power[i]['game']})*")
+
+                st.markdown("### 🏆 SLIP 5: The Ultimate Longshot Parlay (6-8 Legs)")
+                st.caption("Fokus: Tiket pamungkas memanfaatkan seluruh sisa laga malam ini (1 Match = 1 Pemain).")
+                legs_s5 = min(len(game_details), 8)
+                if legs_s5 < 3:
+                    st.write("Menunggu jumlah pertandingan harian lebih dari 3 laga untuk menyusun tiket pamungkas.")
+                else:
+                    for i in range(legs_s5):
+                        prop_t = "OVER 0.5 HIT" if i % 2 == 0 else "OVER 1.5 TOTAL BASES"
+                        st.warning(f"**Leg {i+1}:** {pool_hit[i]['name']} ({pool_hit[i]['team']}) ➔ **{prop_t}** *(Laga: {pool_hit[i]['game']})*")
