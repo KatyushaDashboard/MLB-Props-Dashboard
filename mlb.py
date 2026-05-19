@@ -29,7 +29,23 @@ team_mapper = {
     "Texas Rangers": "TEX", "Toronto Blue Jays": "TOR", "Washington Nationals": "WSN"
 }
 
-# --- 2. TARIK JADWAL & PROBABLE PITCHERS (DENGAN L/R TRACKER) ---
+# --- 2. TARIK JADWAL & PROBABLE PITCHERS ---
+@st.cache_data(ttl=86400)
+def get_pitcher_hand(name):
+    """Fungsi khusus menggali data personId MLB untuk mencari tangan pelempar (L/R)"""
+    if not name or name in ['Unknown Pitcher', 'Unknown', 'TBD']: return "-"
+    try:
+        res = statsapi.lookup_player(name)
+        if not res: return "-"
+        
+        # Tarik data profil anatomi lengkap menggunakan personId
+        pid = res[0]['id']
+        p_data = statsapi.get('person', {'personId': pid})
+        hand = p_data.get('people', [{}])[0].get('pitchHand', {}).get('code', '-')
+        return hand
+    except:
+        return "-"
+
 @st.cache_data(ttl=1800)
 def get_daily_schedule():
     games = statsapi.schedule(date=mlb_date_str)
@@ -37,15 +53,6 @@ def get_daily_schedule():
     today_matchups = []
     player_to_team = {}
     game_details = []
-    
-    # Fungsi pencari tangan pelempar otomatis
-    def get_hand(name):
-        if name in ['Unknown Pitcher', 'Unknown', 'TBD']: return "-"
-        try:
-            res = statsapi.lookup_player(name)
-            if res: return res[0].get('pitchHand', {}).get('code', '-')
-        except: pass
-        return "-"
     
     for game in games:
         away_abbr = team_mapper.get(game['away_name'], game['away_name'])
@@ -66,8 +73,8 @@ def get_daily_schedule():
             'text': f"{away_abbr} @ {home_abbr}",
             'away_pitcher': away_p,
             'home_pitcher': home_p,
-            'away_hand': get_hand(away_p),
-            'home_hand': get_hand(home_p),
+            'away_hand': get_pitcher_hand(away_p),
+            'home_hand': get_pitcher_hand(home_p),
             'venue': game.get('venue_name', 'Unknown Stadium')
         })
         
@@ -174,7 +181,7 @@ else:
             metrics = [c for c in display_df.columns if any(k in c for k in ['xwOBA', 'xBA', 'xSLG', 'HardHit'])]
             st.dataframe(display_df.style.background_gradient(cmap='RdYlGn', subset=metrics) if metrics else display_df, use_container_width=True, height=500)
 
-    # --- TAB 3: DAILY TOP PICKS (DENGAN BOX DESAIN BARU) ---
+    # --- TAB 3: DAILY TOP PICKS ---
     with tab3:
         st.subheader("🤖 Rekomendasi Pick Per Pertandingan")
         if not df_hitters.empty and not df_pitchers.empty:
@@ -216,7 +223,7 @@ else:
 
                     with col2:
                         st.markdown("### 🎯 Probable Pitchers (O/U)")
-                        for p_name, p_team in [(game['away_pitcher'], game['away']), (game['home_pitcher'], game['home'])]:
+                        for p_name, p_team, p_hand in [(game['away_pitcher'], game['away'], game['away_hand']), (game['home_pitcher'], game['home'], game['home_hand'])]:
                             if p_name != 'Unknown Pitcher':
                                 last_name = p_name.split()[-1]
                                 p_match = df_p_today[(df_p_today['Team'] == p_team) & (df_p_today['Name'].str.contains(last_name, case=False, na=False))]
@@ -229,13 +236,13 @@ else:
                                     hit_rec = "OVER Hit Allowed" if xba_alwd >= 0.250 else "UNDER Hit Allowed"
                                     out_rec = "UNDER Outs Recorded" if xwoba_alwd >= 0.330 else "OVER Outs Recorded"
                                     
-                                    st.info(f"⚾ **{p_stat['Name']}** ({p_team})\n\n"
+                                    st.info(f"⚾ **{p_stat['Name']}** ({p_team} - {p_hand})\n\n"
                                             f"↳ **Target 1: {hit_rec}** *(xBA Allowed: {xba_alwd})*\n\n"
                                             f"↳ **Target 2: {out_rec}** *(xwOBA Allowed: {xwoba_alwd})*")
                                 else:
-                                    st.write(f"⚾ **{p_name}** ({p_team}) - *Metrik Statcast belum cukup*")
+                                    st.write(f"⚾ **{p_name}** ({p_team} - {p_hand}) - *Metrik Statcast belum cukup*")
 
-    # --- TAB 4: AI PROBABILITY MODEL (DENGAN LABEL PITCHER L/R) ---
+    # --- TAB 4: AI PROBABILITY MODEL ---
     with tab4:
         st.subheader("🚀 AI Prop Probability Model")
         if not df_hitters.empty:
@@ -246,7 +253,6 @@ else:
                         w_cond, wind_cond = get_weather_info(game['game_id'])
                         st.markdown(f"**🏟️ {game['venue']}** | 🌤️ {w_cond} | 💨 {wind_cond}")
                         
-                        # INJEKSI LABEL TANGAN L/R DI SINI
                         away_p_disp = f"{game['away_pitcher']} ({game['away_hand']})" if game['away_pitcher'] != 'Unknown Pitcher' else "Unknown Pitcher"
                         home_p_disp = f"{game['home_pitcher']} ({game['home_hand']})" if game['home_pitcher'] != 'Unknown Pitcher' else "Unknown Pitcher"
                         
