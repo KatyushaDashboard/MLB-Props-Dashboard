@@ -7,6 +7,7 @@ from datetime import datetime
 st.set_page_config(page_title="MLB AI Props Dashboard", layout="wide")
 st.title("⚾ MLB Daily Matchup & AI Predictions")
 
+# --- 1. ZONA WAKTU ---
 def get_mlb_date():
     wib_tz = pytz.timezone('Asia/Jakarta')
     now_est = datetime.now(wib_tz).astimezone(pytz.timezone('US/Eastern'))
@@ -15,6 +16,7 @@ def get_mlb_date():
 mlb_date_str, mlb_date_api = get_mlb_date()
 st.write(f"📅 **Jadwal Pertandingan (US Time):** {mlb_date_str}")
 
+# --- 2. TARIK JADWAL LIVE ---
 team_mapper = {
     "Arizona Diamondbacks": "ARI", "Atlanta Braves": "ATL", "Baltimore Orioles": "BAL",
     "Boston Red Sox": "BOS", "Chicago Cubs": "CHC", "Chicago White Sox": "CHW",
@@ -39,11 +41,10 @@ def get_daily_schedule():
     for game in games:
         away_abbr = team_mapper.get(game['away_name'], game['away_name'])
         home_abbr = team_mapper.get(game['home_name'], game['home_name'])
+        
         playing_teams.extend([away_abbr, home_abbr])
         matchup_text = f"{away_abbr} @ {home_abbr} ({game.get('game_datetime', '')[11:16]} ET) - {game['status']}"
         today_matchups.append(matchup_text)
-        
-        # Menyimpan ID Game & Status untuk kebutuhan Tab 5 (Live Report)
         game_details.append({
             'game_id': game['game_id'],
             'status': game['status'],
@@ -58,26 +59,25 @@ def get_daily_schedule():
             for p in statsapi.get('team_roster', {'teamId': game['home_id']})['roster']:
                 player_to_team[p['person']['fullName']] = home_abbr
         except: continue
+            
     return playing_teams, today_matchups, player_to_team, game_details
 
+# --- 3. BACA DATA LOKAL ---
 def load_local_data():
     try:
         df_hitters = pd.read_csv('master_hitter_2026.csv')
         df_pitchers = pd.read_csv('master_pitcher_2026.csv')
         return df_hitters, df_pitchers
     except Exception as e:
-        st.error("⚠️ File CSV belum ada! Jalankan 'python bot_updater.py' di CMD terlebih dahulu.")
+        st.error("⚠️ File CSV belum ada! Pastikan data ter-update oleh robot GitHub.")
         return pd.DataFrame(), pd.DataFrame()
 
-# FUNGSI BARU KHUSUS TAB 5: Tarik data Boxscore Live (Di-cache 5 menit biar cepat)
-# FUNGSI BARU KHUSUS TAB 5: Tarik data Boxscore Live (Di-cache 5 menit biar cepat)
+# --- 4. LIVE BOXSCORE API ---
 @st.cache_data(ttl=300)
 def get_live_boxscore(game_id, away_abbr, home_abbr):
     try:
-        # PERBAIKAN DI SINI: Gunakan raw API endpoint agar struktur JSON terbaca
         raw_data = statsapi.get('game_boxscore', {'gamePk': game_id})
         teams_data = raw_data.get('teams', {})
-        
         hitters, pitchers = [], []
         
         for side, abbr in [('away', away_abbr), ('home', home_abbr)]:
@@ -87,7 +87,6 @@ def get_live_boxscore(game_id, away_abbr, home_abbr):
                 b_stats = pdata.get('stats', {}).get('batting', {})
                 p_stats = pdata.get('stats', {}).get('pitching', {})
                 
-                # Ekstrak Hitter (Hanya yang sudah mendapat giliran memukul / Plate Appearance > 0)
                 if b_stats and b_stats.get('plateAppearances', 0) > 0:
                     hitters.append({
                         'Team': abbr, 'Name': name,
@@ -96,22 +95,15 @@ def get_live_boxscore(game_id, away_abbr, home_abbr):
                         'RBI': b_stats.get('rbi', 0), 
                         'TB': b_stats.get('totalBases', b_stats.get('hits', 0))
                     })
-                
-                # Ekstrak Pitcher (Hanya yang sudah melempar ke pemukul lawan)
                 if p_stats and p_stats.get('battersFaced', 0) > 0:
                     ip = str(p_stats.get('inningsPitched', '0.0'))
-                    parts = ip.split('.')
-                    outs = int(parts[0]) * 3
-                    if len(parts) > 1: outs += int(parts[1])
-                    
                     pitchers.append({
-                        'Team': abbr, 'Name': name, 'IP': ip, 'Outs': outs,
+                        'Team': abbr, 'Name': name, 'IP': ip,
                         'H Allowed': p_stats.get('hits', 0), 'R Allowed': p_stats.get('runs', 0),
                         'SO': p_stats.get('strikeOuts', 0)
                     })
-                    
         return pd.DataFrame(hitters), pd.DataFrame(pitchers)
-    except Exception as e:
+    except:
         return pd.DataFrame(), pd.DataFrame()
 
 playing_teams, today_matchups, player_team_map, game_details = get_daily_schedule()
@@ -122,6 +114,7 @@ if not df_hitters.empty:
 if not df_pitchers.empty:
     df_pitchers.insert(1, 'Team', df_pitchers['Name'].map(player_team_map))
 
+# --- UI DASHBOARD ---
 if not today_matchups:
     st.warning("Tidak ada jadwal pertandingan MLB untuk hari ini.")
 else:
@@ -129,13 +122,14 @@ else:
     cols = st.columns(min(len(today_matchups), 6))
     for i, m in enumerate(today_matchups): cols[i % 6].info(m)
 
-    # 5 TABS UTAMA SEKARANG
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    # 6 TABS UTAMA
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "Pitcher Matchups", 
         "Hitter Props", 
         "🔥 Daily Top Picks",
         "🚀 AI Predictions",
-        "📡 Live Report & Results"
+        "📡 Live Report",
+        "📈 AI Tracker (22 Picks)"
     ])
 
     with tab1:
@@ -239,36 +233,98 @@ else:
             else:
                 st.warning("⚠️ Kolom AI Score belum terdeteksi. Silakan jalankan 'bot_updater.py' atau tunggu jadwal update otomatis GitHub.")
 
-    # --- TAB 5: LIVE REPORT BARU ---
     with tab5:
         st.subheader("📡 Live Report & Hasil Pemain Hari Ini")
-        st.write("Cek langsung performa pemainmu di sini. Data ditarik *real-time* dari MLB dan menyaring pemain yang berhasil mencetak skor.")
-        
         for game in game_details:
-            # Jika game belum main, lewati tarikan boxscore
             if game['status'] in ['Scheduled', 'Pre-Game', 'Warmup']:
-                with st.expander(f"⏳ {game['text']}", expanded=False):
-                    st.info("Pertandingan belum dimulai.")
+                with st.expander(f"⏳ {game['text']}", expanded=False): st.info("Pertandingan belum dimulai.")
                 continue
-                
-            # Jika game Live atau Final
             with st.expander(f"🔥 {game['text']}", expanded=False):
                 live_h, live_p = get_live_boxscore(game['game_id'], game['away'], game['home'])
-                
                 if not live_h.empty and not live_p.empty:
-                    # Filter Hitter: Hanya tampilkan pemain yang mencetak minimal 1 (H/HR/R/RBI/TB)
                     sukses_h = live_h[(live_h['H'] >= 1) | (live_h['HR'] >= 1) | (live_h['R'] >= 1) | (live_h['RBI'] >= 1) | (live_h['TB'] >= 1)]
-                    
                     c1, c2 = st.columns(2)
                     with c1:
                         st.markdown("### 🏏 Hitters (Pencetak Skor)")
-                        if not sukses_h.empty:
-                            st.dataframe(sukses_h.sort_values(by=['TB', 'H'], ascending=False), hide_index=True, use_container_width=True)
-                        else:
-                            st.write("Belum ada hitter yang mencetak angka.")
-                            
+                        if not sukses_h.empty: st.dataframe(sukses_h.sort_values(by=['TB', 'H'], ascending=False), hide_index=True, use_container_width=True)
+                        else: st.write("Belum ada hitter yang mencetak angka.")
                     with c2:
                         st.markdown("### 🎯 Pitchers (Rapor Lemparan)")
-                        st.dataframe(live_p[['Team', 'Name', 'IP', 'Outs', 'H Allowed', 'R Allowed', 'SO']], hide_index=True, use_container_width=True)
-                else:
-                    st.write("Sedang mengambil data / Data belum masuk ke server MLB.")
+                        st.dataframe(live_p[['Team', 'Name', 'IP', 'H Allowed', 'R Allowed', 'SO']], hide_index=True, use_container_width=True)
+                else: st.write("Sedang mengambil data / Data belum masuk ke server MLB.")
+
+    # --- TAB 6: AI ACCURACY TRACKER (22 TARGETS EXPANDED) ---
+    with tab6:
+        st.subheader("📈 AI Model Accuracy & Slip Tracker (22 Picks Per Game)")
+        st.write("Verifikasi otomatis untuk 2 Top Picks Tab 3 & 20 AI Predictions Tab 4.")
+        
+        if not df_hitters.empty:
+            df_h_today = df_hitters[df_hitters['Team'].isin(playing_teams)].dropna(subset=['Team'])
+            
+            for game in game_details:
+                if game['status'] in ['Scheduled', 'Pre-Game', 'Warmup']:
+                    with st.expander(f"⏳ Tracker: {game['text']}", expanded=False):
+                        st.info("Pertandingan belum dimulai. Menunggu hasil riil...")
+                    continue
+                    
+                with st.expander(f"📊 Slip Verification: {game['text']}", expanded=False):
+                    live_h, _ = get_live_boxscore(game['game_id'], game['away'], game['home'])
+                    h_df = df_h_today[df_h_today['Team'].isin([game['away'], game['home']])]
+                    
+                    if not live_h.empty and not h_df.empty and 'HR_Prob_Score' in h_df.columns:
+                        targets = []
+                        
+                        # 1. & 2. Masukkan Top Game Metric (Dari Tab 3)
+                        if 'Barrel%' in h_df.columns:
+                            top_barrel = h_df.sort_values('Barrel%', ascending=False).iloc[0]
+                            targets.append({'name': top_barrel['Name'], 'team': top_barrel['Team'], 'prop': '⭐ Tab 3 - Top Game HR (Barrel%)'})
+                        if 'xBA' in h_df.columns:
+                            top_xba = h_df.sort_values('xBA', ascending=False).iloc[0]
+                            targets.append({'name': top_xba['Name'], 'team': top_xba['Team'], 'prop': '⭐ Tab 3 - Top Game Hit (xBA)'})
+
+                        # 3. Masukkan 20 Nama dari Tab 4 (AI Model)
+                        for team_abbr, team_loc in [(game['away'], 'Away'), (game['home'], 'Home')]:
+                            team_df = h_df[h_df['Team'] == team_abbr]
+                            if not team_df.empty:
+                                # 5 AI HR Targets per Tim
+                                top5_hr = team_df.sort_values('HR_Prob_Score', ascending=False).head(5)
+                                for _, row in top5_hr.iterrows():
+                                    targets.append({'name': row['Name'], 'team': row['Team'], 'prop': f'🔥 Tab 4 - {team_loc} Top 5 HR Index'})
+                                
+                                # 5 AI Hit Targets per Tim
+                                top5_hit = team_df.sort_values('Hit_Prob_Score', ascending=False).head(5)
+                                for _, row in top5_hit.iterrows():
+                                    targets.append({'name': row['Name'], 'team': row['Team'], 'prop': f'🏏 Tab 4 - {team_loc} Top 5 Hit Index'})
+
+                        # Kumpulkan Hasil Lapangan
+                        verification_rows = []
+                        for t in targets:
+                            p_live = live_h[live_h['Name'] == t['name']]
+                            
+                            if not p_live.empty:
+                                act_h = int(p_live.iloc[0]['H'])
+                                act_hr = int(p_live.iloc[0]['HR'])
+                                
+                                if 'HR' in t['prop']:
+                                    status = "✅ WIN (BOOM HR!)" if act_hr >= 1 else ("⏳ LIVE / NO HR" if game['status'] != 'Final' else "❌ MISS")
+                                else:
+                                    status = "✅ WIN (HIT SUCCESS)" if act_h >= 1 else ("⏳ LIVE / NO HIT" if game['status'] != 'Final' else "❌ MISS")
+                                    
+                                field_result = f"Hit: {act_h} | HR: {act_hr}"
+                            else:
+                                status = "⏳ Belum Batting" if game['status'] != 'Final' else "❌ MISS (DNP/No PA)"
+                                field_result = "Hit: 0 | HR: 0"
+                                
+                            verification_rows.append({
+                                'Tim': t['team'],
+                                'Nama Pemain': t['name'],
+                                'Kategori Taruhan': t['prop'],
+                                'Hasil Riil': field_result,
+                                'Status Slip': status
+                            })
+                            
+                        # Tampilkan Tabel
+                        df_v = pd.DataFrame(verification_rows)
+                        st.dataframe(df_v, hide_index=True, use_container_width=True)
+                    else:
+                        st.write("Sedang menyinkronkan data atau pertandingan belum memunculkan *Boxscore*.")
