@@ -5,7 +5,7 @@ import pytz
 from datetime import datetime
 
 st.set_page_config(page_title="MLB AI Props Dashboard", layout="wide")
-st.title("⚾ MLB Daily Matchup & AI Predictions")
+st.title("⚾ MLB Daily Matchup & AI Predictions (Phase 2)")
 
 # --- 1. ZONA WAKTU ---
 def get_mlb_date():
@@ -16,7 +16,6 @@ def get_mlb_date():
 mlb_date_str, mlb_date_api = get_mlb_date()
 st.write(f"📅 **Jadwal Pertandingan (US Time):** {mlb_date_str}")
 
-# --- 2. TARIK JADWAL LIVE ---
 team_mapper = {
     "Arizona Diamondbacks": "ARI", "Atlanta Braves": "ATL", "Baltimore Orioles": "BAL",
     "Boston Red Sox": "BOS", "Chicago Cubs": "CHC", "Chicago White Sox": "CHW",
@@ -30,6 +29,7 @@ team_mapper = {
     "Texas Rangers": "TEX", "Toronto Blue Jays": "TOR", "Washington Nationals": "WSN"
 }
 
+# --- 2. FUNGSI TARIK DATA MATCH & CUACA (CACHE) ---
 @st.cache_data(ttl=1800)
 def get_daily_schedule():
     games = statsapi.schedule(date=mlb_date_str)
@@ -45,12 +45,21 @@ def get_daily_schedule():
         playing_teams.extend([away_abbr, home_abbr])
         matchup_text = f"{away_abbr} @ {home_abbr} ({game.get('game_datetime', '')[11:16]} ET) - {game['status']}"
         today_matchups.append(matchup_text)
+        
+        # Ekstrak Info Pelempar (Probable Pitchers) dari jadwal
+        away_p = game.get('away_probable_pitcher', 'TBD')
+        home_p = game.get('home_probable_pitcher', 'TBD')
+        venue = game.get('venue_name', 'Unknown Stadium')
+        
         game_details.append({
             'game_id': game['game_id'],
             'status': game['status'],
             'away': away_abbr, 
             'home': home_abbr, 
-            'text': matchup_text
+            'text': matchup_text,
+            'away_pitcher': away_p,
+            'home_pitcher': home_p,
+            'venue': venue
         })
         
         try:
@@ -62,6 +71,18 @@ def get_daily_schedule():
             
     return playing_teams, today_matchups, player_to_team, game_details
 
+@st.cache_data(ttl=3600)
+def get_weather_info(game_id):
+    try:
+        game_data = statsapi.get('game', {'gamePk': game_id})['gameData']
+        weather = game_data.get('weather', {})
+        temp = weather.get('temp', 'N/A')
+        condition = weather.get('condition', 'N/A')
+        wind = weather.get('wind', 'N/A')
+        return f"{temp}°F, {condition}", wind
+    except:
+        return "N/A", "N/A"
+
 # --- 3. BACA DATA LOKAL ---
 def load_local_data():
     try:
@@ -69,10 +90,10 @@ def load_local_data():
         df_pitchers = pd.read_csv('master_pitcher_2026.csv')
         return df_hitters, df_pitchers
     except Exception as e:
-        st.error("⚠️ File CSV belum ada! Pastikan data ter-update oleh robot GitHub.")
+        st.error("⚠️ File CSV belum ada! Pastikan Fase 1 di GitHub Actions sudah selesai berjalan.")
         return pd.DataFrame(), pd.DataFrame()
 
-# --- 4. LIVE BOXSCORE API ---
+# --- 4. LIVE BOXSCORE API (TAB 5 & 6) ---
 @st.cache_data(ttl=300)
 def get_live_boxscore(game_id, away_abbr, home_abbr):
     try:
@@ -109,10 +130,8 @@ def get_live_boxscore(game_id, away_abbr, home_abbr):
 playing_teams, today_matchups, player_team_map, game_details = get_daily_schedule()
 df_hitters, df_pitchers = load_local_data()
 
-if not df_hitters.empty:
-    df_hitters.insert(1, 'Team', df_hitters['Name'].map(player_team_map))
-if not df_pitchers.empty:
-    df_pitchers.insert(1, 'Team', df_pitchers['Name'].map(player_team_map))
+if not df_hitters.empty: df_hitters.insert(1, 'Team', df_hitters['Name'].map(player_team_map))
+if not df_pitchers.empty: df_pitchers.insert(1, 'Team', df_pitchers['Name'].map(player_team_map))
 
 # --- UI DASHBOARD ---
 if not today_matchups:
@@ -122,209 +141,157 @@ else:
     cols = st.columns(min(len(today_matchups), 6))
     for i, m in enumerate(today_matchups): cols[i % 6].info(m)
 
-    # 6 TABS UTAMA
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "Pitcher Matchups", 
         "Hitter Props", 
         "🔥 Daily Top Picks",
         "🚀 AI Predictions",
         "📡 Live Report",
-        "📈 AI Tracker (22 Picks)"
+        "📈 AI Tracker"
     ])
 
     with tab1:
         st.subheader("Pitcher Metrics Allowed")
         if not df_pitchers.empty:
             df_p_today = df_pitchers[df_pitchers['Team'].isin(playing_teams)].dropna(subset=['Team'])
-            styled_pitchers = df_p_today.style
             allowed_metrics = [c for c in ['xwOBA Allowed', 'xSLG Allowed', 'xBA Allowed', 'HardHit% Allowed', 'Barrel% Allowed'] if c in df_p_today.columns]
-            if allowed_metrics: styled_pitchers = styled_pitchers.background_gradient(cmap='RdYlGn', subset=allowed_metrics)
-            st.dataframe(styled_pitchers, use_container_width=True, height=500)
+            st.dataframe(df_p_today.style.background_gradient(cmap='RdYlGn', subset=allowed_metrics) if allowed_metrics else df_p_today, use_container_width=True, height=500)
 
     with tab2:
-        st.subheader("Hitter Advanced & Expected Metrics")
+        st.subheader("Hitter Advanced & Platoon Metrics")
         if not df_hitters.empty:
             df_h_today = df_hitters[df_hitters['Team'].isin(playing_teams)].dropna(subset=['Team'])
             col1, col2 = st.columns(2)
             with col1: search_name = st.text_input("🔍 Ketik Nama Pemain (Opsional):", "")
             with col2: 
-                available_teams = sorted(df_h_today['Team'].unique().tolist())
-                selected_team = st.selectbox("Atau Filter Berdasarkan Tim:", ["Semua Tim"] + available_teams)
+                avail_teams = sorted(df_h_today['Team'].unique().tolist())
+                sel_team = st.selectbox("Filter Berdasarkan Tim:", ["Semua Tim"] + avail_teams)
             
             if search_name: display_df = df_h_today[df_h_today['Name'].str.contains(search_name, case=False, na=False)]
-            elif selected_team != "Semua Tim": display_df = df_h_today[df_h_today['Team'] == selected_team]
-            else:
-                sort_col = 'xwOBA (14d)' if 'xwOBA (14d)' in df_h_today.columns else ('xwOBA' if 'xwOBA' in df_h_today.columns else df_h_today.columns[2])
-                display_df = df_h_today.sort_values(by=sort_col, ascending=False).head(50)
+            elif sel_team != "Semua Tim": display_df = df_h_today[df_h_today['Team'] == sel_team]
+            else: display_df = df_h_today.sort_values(by='xwOBA', ascending=False).head(50)
             
-            styled_hitters = display_df.style
-            hitter_metrics = [c for c in ['xwOBA', 'xSLG', 'xBA', 'HardHit%', 'Barrel%', 'Max EV', 'SweetSpot% (14d)', 'HardHit% (14d)', 'Barrel% (14d)', 'xwOBA (14d)'] if c in display_df.columns]
-            if hitter_metrics: styled_hitters = styled_hitters.background_gradient(cmap='RdYlGn', subset=hitter_metrics)
-            st.dataframe(styled_hitters, use_container_width=True, height=500)
+            # Dinamis mengambil semua kolom statistik termasuk vs_L dan vs_R
+            hitter_metrics = [c for c in display_df.columns if any(k in c for k in ['xwOBA', 'xBA', 'xSLG', 'HardHit', 'Barrel', 'SweetSpot'])]
+            st.dataframe(display_df.style.background_gradient(cmap='RdYlGn', subset=hitter_metrics) if hitter_metrics else display_df, use_container_width=True, height=500)
 
     with tab3:
         st.subheader("🤖 Rekomendasi Pick Per Pertandingan")
         if not df_hitters.empty and not df_pitchers.empty:
             df_h_today = df_hitters[df_hitters['Team'].isin(playing_teams)].dropna(subset=['Team'])
             df_p_today = df_pitchers[df_pitchers['Team'].isin(playing_teams)].dropna(subset=['Team'])
+            
             for game in game_details:
                 with st.expander(f"⚾ Matchup: {game['text']}", expanded=False):
+                    # --- BANNER STADION & PITCHER ---
+                    weather_cond, wind_cond = get_weather_info(game['game_id'])
+                    st.markdown(f"**🏟️ {game['venue']}** | 🌤️ **Cuaca:** {weather_cond} | 💨 **Angin:** {wind_cond}")
+                    st.markdown(f"⚾ **Probable Pitchers:** {game['away_pitcher']} (Away) vs {game['home_pitcher']} (Home)")
+                    st.divider()
+                    
                     game_teams = [game['away'], game['home']]
                     h_df = df_h_today[df_h_today['Team'].isin(game_teams)]
                     p_df = df_p_today[df_p_today['Team'].isin(game_teams)]
                     if h_df.empty or p_df.empty: continue
+                    
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.markdown(f"### 🏏 Hitter Picks ({game['away']} & {game['home']})")
-                        if 'Barrel%' in h_df.columns:
-                            hr_pick = h_df.sort_values(by='Barrel%', ascending=False).iloc[0]
-                            st.success(f"**1. Over HR:** {hr_pick['Name']} ({hr_pick['Team']})")
-                        if 'Max EV' in h_df.columns:
-                            dark_hr = h_df.sort_values(by='Max EV', ascending=False).iloc[0]
-                            st.success(f"**↳ Dark Horse HR:** {dark_hr['Name']} ({dark_hr['Team']})")
-                        if 'xSLG' in h_df.columns:
-                            tb_pick = h_df.sort_values(by='xSLG', ascending=False).iloc[0]
-                            st.info(f"**2. Over Total Base:** {tb_pick['Name']} ({tb_pick['Team']})")
-                        if 'xwOBA' in h_df.columns:
-                            run_pick = h_df.sort_values(by='xwOBA', ascending=False).iloc[0]
-                            st.warning(f"**3. Over Run:** {run_pick['Name']} ({run_pick['Team']})")
-                        if 'HardHit%' in h_df.columns:
-                            rbi_pick = h_df.sort_values(by='HardHit%', ascending=False).iloc[0]
-                            st.error(f"**4. Over RBI:** {rbi_pick['Name']} ({rbi_pick['Team']})")
-                        if 'xBA' in h_df.columns:
-                            hit_pick = h_df.sort_values(by='xBA', ascending=False).iloc[0]
-                            st.caption(f"**5. Over Hit:** {hit_pick['Name']} ({hit_pick['Team']})")
+                        st.markdown(f"### 🏏 Hitter Picks")
+                        if 'Barrel%' in h_df.columns: st.success(f"**1. Over HR:** {h_df.sort_values(by='Barrel%', ascending=False).iloc[0]['Name']}")
+                        if 'xSLG' in h_df.columns: st.info(f"**2. Over Total Base:** {h_df.sort_values(by='xSLG', ascending=False).iloc[0]['Name']}")
+                        if 'xBA' in h_df.columns: st.caption(f"**3. Over Hit:** {h_df.sort_values(by='xBA', ascending=False).iloc[0]['Name']}")
 
                     with col2:
                         st.markdown("### 🎯 Pitcher Picks (O/U)")
-                        if 'xBA Allowed' in p_df.columns:
-                            fade_hit = p_df.sort_values(by='xBA Allowed', ascending=False).iloc[0]
-                            st.warning(f"**1. OVER Hit Allowed:** {fade_hit['Name']} ({fade_hit['Team']})")
                         if 'xwOBA Allowed' in p_df.columns:
-                            safe_out = p_df.sort_values(by='xwOBA Allowed', ascending=True).iloc[0]
-                            st.success(f"**2. OVER Outs Recorded:** {safe_out['Name']} ({safe_out['Team']})")
-                            fade_out = p_df.sort_values(by='xwOBA Allowed', ascending=False).iloc[0]
-                            st.error(f"**3. UNDER Outs Recorded:** {fade_out['Name']} ({fade_out['Team']})")
+                            st.success(f"**1. OVER Outs Recorded:** {p_df.sort_values(by='xwOBA Allowed', ascending=True).iloc[0]['Name']}")
+                            st.error(f"**2. UNDER Outs Recorded:** {p_df.sort_values(by='xwOBA Allowed', ascending=False).iloc[0]['Name']}")
 
     with tab4:
-        st.subheader("🚀 AI Prop Betting Probability Model (Game-by-Game)")
+        st.subheader("🚀 AI Prop Probability Model & Platoon Splits")
         if not df_hitters.empty:
             df_h_today = df_hitters[df_hitters['Team'].isin(playing_teams)].dropna(subset=['Team'])
             if 'HR_Prob_Score' in df_h_today.columns:
                 for game in game_details:
-                    with st.expander(f"🔥 AI Prediction Modeling: {game['text']}", expanded=False):
+                    with st.expander(f"🔥 AI Prediction: {game['text']}", expanded=False):
+                        # --- BANNER STADION & PITCHER ---
+                        weather_cond, wind_cond = get_weather_info(game['game_id'])
+                        st.markdown(f"**🏟️ {game['venue']}** | 🌤️ **Cuaca:** {weather_cond} | 💨 **Angin:** {wind_cond}")
+                        st.markdown(f"⚾ **Probable Pitchers:** {game['away_pitcher']} (Away) vs {game['home_pitcher']} (Home)")
+                        st.divider()
+
                         col_away, col_home = st.columns(2)
+                        
+                        # --- AWAY TEAM ---
                         with col_away:
-                            st.markdown(f"#### 🏟️ {game['away']} (Away Team)")
+                            st.markdown(f"#### 🏟️ {game['away']} (Lawan {game['home_pitcher']})")
                             away_df = df_h_today[df_h_today['Team'] == game['away']]
                             if not away_df.empty:
-                                st.write("🎯 **Top 5 HR Probability Score:**")
-                                st.dataframe(away_df.sort_values('HR_Prob_Score', ascending=False).head(5)[['Name', 'HR_Prob_Score']], hide_index=True, use_container_width=True)
-                                st.write("🏏 **Top 5 Hit Probability Score:**")
-                                st.dataframe(away_df.sort_values('Hit_Prob_Score', ascending=False).head(5)[['Name', 'Hit_Prob_Score']], hide_index=True, use_container_width=True)
+                                hr_cols = ['Name', 'HR_Prob_Score'] + [c for c in ['xwOBA_vs_L', 'xwOBA_vs_R'] if c in away_df.columns]
+                                hit_cols = ['Name', 'Hit_Prob_Score'] + [c for c in ['xBA_vs_L', 'xBA_vs_R'] if c in away_df.columns]
+                                
+                                st.write("🎯 **Top 5 HR Index & Platoon:**")
+                                st.dataframe(away_df.sort_values('HR_Prob_Score', ascending=False).head(5)[hr_cols], hide_index=True, use_container_width=True)
+                                
+                                st.write("🏏 **Top 5 Hit Index & Platoon:**")
+                                st.dataframe(away_df.sort_values('Hit_Prob_Score', ascending=False).head(5)[hit_cols], hide_index=True, use_container_width=True)
+
+                        # --- HOME TEAM ---
                         with col_home:
-                            st.markdown(f"#### 🏠 {game['home']} (Home Team)")
+                            st.markdown(f"#### 🏠 {game['home']} (Lawan {game['away_pitcher']})")
                             home_df = df_h_today[df_h_today['Team'] == game['home']]
                             if not home_df.empty:
-                                st.write("🎯 **Top 5 HR Probability Score:**")
-                                st.dataframe(home_df.sort_values('HR_Prob_Score', ascending=False).head(5)[['Name', 'HR_Prob_Score']], hide_index=True, use_container_width=True)
-                                st.write("🏏 **Top 5 Hit Probability Score:**")
-                                st.dataframe(home_df.sort_values('Hit_Prob_Score', ascending=False).head(5)[['Name', 'Hit_Prob_Score']], hide_index=True, use_container_width=True)
+                                hr_cols = ['Name', 'HR_Prob_Score'] + [c for c in ['xwOBA_vs_L', 'xwOBA_vs_R'] if c in home_df.columns]
+                                hit_cols = ['Name', 'Hit_Prob_Score'] + [c for c in ['xBA_vs_L', 'xBA_vs_R'] if c in home_df.columns]
+                                
+                                st.write("🎯 **Top 5 HR Index & Platoon:**")
+                                st.dataframe(home_df.sort_values('HR_Prob_Score', ascending=False).head(5)[hr_cols], hide_index=True, use_container_width=True)
+                                
+                                st.write("🏏 **Top 5 Hit Index & Platoon:**")
+                                st.dataframe(home_df.sort_values('Hit_Prob_Score', ascending=False).head(5)[hit_cols], hide_index=True, use_container_width=True)
             else:
-                st.warning("⚠️ Kolom AI Score belum terdeteksi. Silakan jalankan 'bot_updater.py' atau tunggu jadwal update otomatis GitHub.")
+                st.warning("⚠️ Menunggu Fase 1 (Platoon CSV) selesai di-generate...")
 
+    # --- TAB 5 & 6 (LIVE REPORT & TRACKER) TETAP SAMA ---
     with tab5:
         st.subheader("📡 Live Report & Hasil Pemain Hari Ini")
         for game in game_details:
-            if game['status'] in ['Scheduled', 'Pre-Game', 'Warmup']:
-                with st.expander(f"⏳ {game['text']}", expanded=False): st.info("Pertandingan belum dimulai.")
-                continue
+            if game['status'] in ['Scheduled', 'Pre-Game', 'Warmup']: continue
             with st.expander(f"🔥 {game['text']}", expanded=False):
                 live_h, live_p = get_live_boxscore(game['game_id'], game['away'], game['home'])
-                if not live_h.empty and not live_p.empty:
-                    sukses_h = live_h[(live_h['H'] >= 1) | (live_h['HR'] >= 1) | (live_h['R'] >= 1) | (live_h['RBI'] >= 1) | (live_h['TB'] >= 1)]
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        st.markdown("### 🏏 Hitters (Pencetak Skor)")
-                        if not sukses_h.empty: st.dataframe(sukses_h.sort_values(by=['TB', 'H'], ascending=False), hide_index=True, use_container_width=True)
-                        else: st.write("Belum ada hitter yang mencetak angka.")
-                    with c2:
-                        st.markdown("### 🎯 Pitchers (Rapor Lemparan)")
-                        st.dataframe(live_p[['Team', 'Name', 'IP', 'H Allowed', 'R Allowed', 'SO']], hide_index=True, use_container_width=True)
-                else: st.write("Sedang mengambil data / Data belum masuk ke server MLB.")
+                if not live_h.empty:
+                    sukses_h = live_h[(live_h['H'] >= 1) | (live_h['HR'] >= 1) | (live_h['TB'] >= 1)]
+                    st.dataframe(sukses_h.sort_values(by=['TB', 'H'], ascending=False), hide_index=True, use_container_width=True)
 
-    # --- TAB 6: AI ACCURACY TRACKER (22 TARGETS EXPANDED) ---
     with tab6:
-        st.subheader("📈 AI Model Accuracy & Slip Tracker (22 Picks Per Game)")
-        st.write("Verifikasi otomatis untuk 2 Top Picks Tab 3 & 20 AI Predictions Tab 4.")
-        
+        st.subheader("📈 AI Model Accuracy & Slip Tracker (22 Picks)")
         if not df_hitters.empty:
             df_h_today = df_hitters[df_hitters['Team'].isin(playing_teams)].dropna(subset=['Team'])
-            
             for game in game_details:
-                if game['status'] in ['Scheduled', 'Pre-Game', 'Warmup']:
-                    with st.expander(f"⏳ Tracker: {game['text']}", expanded=False):
-                        st.info("Pertandingan belum dimulai. Menunggu hasil riil...")
-                    continue
-                    
+                if game['status'] in ['Scheduled', 'Pre-Game', 'Warmup']: continue
                 with st.expander(f"📊 Slip Verification: {game['text']}", expanded=False):
                     live_h, _ = get_live_boxscore(game['game_id'], game['away'], game['home'])
                     h_df = df_h_today[df_h_today['Team'].isin([game['away'], game['home']])]
                     
                     if not live_h.empty and not h_df.empty and 'HR_Prob_Score' in h_df.columns:
                         targets = []
-                        
-                        # 1. & 2. Masukkan Top Game Metric (Dari Tab 3)
-                        if 'Barrel%' in h_df.columns:
-                            top_barrel = h_df.sort_values('Barrel%', ascending=False).iloc[0]
-                            targets.append({'name': top_barrel['Name'], 'team': top_barrel['Team'], 'prop': '⭐ Tab 3 - Top Game HR (Barrel%)'})
-                        if 'xBA' in h_df.columns:
-                            top_xba = h_df.sort_values('xBA', ascending=False).iloc[0]
-                            targets.append({'name': top_xba['Name'], 'team': top_xba['Team'], 'prop': '⭐ Tab 3 - Top Game Hit (xBA)'})
-
-                        # 3. Masukkan 20 Nama dari Tab 4 (AI Model)
-                        for team_abbr, team_loc in [(game['away'], 'Away'), (game['home'], 'Home')]:
+                        for team_abbr in [game['away'], game['home']]:
                             team_df = h_df[h_df['Team'] == team_abbr]
                             if not team_df.empty:
-                                # 5 AI HR Targets per Tim
-                                top5_hr = team_df.sort_values('HR_Prob_Score', ascending=False).head(5)
-                                for _, row in top5_hr.iterrows():
-                                    targets.append({'name': row['Name'], 'team': row['Team'], 'prop': f'🔥 Tab 4 - {team_loc} Top 5 HR Index'})
-                                
-                                # 5 AI Hit Targets per Tim
-                                top5_hit = team_df.sort_values('Hit_Prob_Score', ascending=False).head(5)
-                                for _, row in top5_hit.iterrows():
-                                    targets.append({'name': row['Name'], 'team': row['Team'], 'prop': f'🏏 Tab 4 - {team_loc} Top 5 Hit Index'})
-
-                        # Kumpulkan Hasil Lapangan
+                                for _, row in team_df.sort_values('HR_Prob_Score', ascending=False).head(5).iterrows():
+                                    targets.append({'name': row['Name'], 'team': team_abbr, 'prop': '🔥 Top 5 HR Index'})
+                                for _, row in team_df.sort_values('Hit_Prob_Score', ascending=False).head(5).iterrows():
+                                    targets.append({'name': row['Name'], 'team': team_abbr, 'prop': '🏏 Top 5 Hit Index'})
+                                    
                         verification_rows = []
                         for t in targets:
                             p_live = live_h[live_h['Name'] == t['name']]
-                            
                             if not p_live.empty:
-                                act_h = int(p_live.iloc[0]['H'])
-                                act_hr = int(p_live.iloc[0]['HR'])
-                                
-                                if 'HR' in t['prop']:
-                                    status = "✅ WIN (BOOM HR!)" if act_hr >= 1 else ("⏳ LIVE / NO HR" if game['status'] != 'Final' else "❌ MISS")
-                                else:
-                                    status = "✅ WIN (HIT SUCCESS)" if act_h >= 1 else ("⏳ LIVE / NO HIT" if game['status'] != 'Final' else "❌ MISS")
-                                    
+                                act_h, act_hr = int(p_live.iloc[0]['H']), int(p_live.iloc[0]['HR'])
+                                status = "✅ WIN" if (('HR' in t['prop'] and act_hr >= 1) or ('Hit' in t['prop'] and act_h >= 1)) else ("⏳ LIVE" if game['status'] != 'Final' else "❌ MISS")
                                 field_result = f"Hit: {act_h} | HR: {act_hr}"
                             else:
-                                status = "⏳ Belum Batting" if game['status'] != 'Final' else "❌ MISS (DNP/No PA)"
-                                field_result = "Hit: 0 | HR: 0"
+                                status, field_result = ("⏳ Belum Batting" if game['status'] != 'Final' else "❌ MISS (DNP)"), "Hit: 0 | HR: 0"
                                 
-                            verification_rows.append({
-                                'Tim': t['team'],
-                                'Nama Pemain': t['name'],
-                                'Kategori Taruhan': t['prop'],
-                                'Hasil Riil': field_result,
-                                'Status Slip': status
-                            })
-                            
-                        # Tampilkan Tabel
-                        df_v = pd.DataFrame(verification_rows)
-                        st.dataframe(df_v, hide_index=True, use_container_width=True)
-                    else:
-                        st.write("Sedang menyinkronkan data atau pertandingan belum memunculkan *Boxscore*.")
+                            verification_rows.append({'Tim': t['team'], 'Pemain': t['name'], 'Proyeksi': t['prop'], 'Hasil': field_result, 'Status': status})
+                        st.dataframe(pd.DataFrame(verification_rows), hide_index=True, use_container_width=True)
