@@ -70,30 +70,34 @@ def load_local_data():
         return pd.DataFrame(), pd.DataFrame()
 
 # FUNGSI BARU KHUSUS TAB 5: Tarik data Boxscore Live (Di-cache 5 menit biar cepat)
+# FUNGSI BARU KHUSUS TAB 5: Tarik data Boxscore Live (Di-cache 5 menit biar cepat)
 @st.cache_data(ttl=300)
 def get_live_boxscore(game_id, away_abbr, home_abbr):
     try:
-        box = statsapi.boxscore_data(game_id)
+        # PERBAIKAN DI SINI: Gunakan raw API endpoint agar struktur JSON terbaca
+        raw_data = statsapi.get('game_boxscore', {'gamePk': game_id})
+        teams_data = raw_data.get('teams', {})
+        
         hitters, pitchers = [], []
         
         for side, abbr in [('away', away_abbr), ('home', home_abbr)]:
-            players = box.get(side, {}).get('players', {})
+            players = teams_data.get(side, {}).get('players', {})
             for pid, pdata in players.items():
                 name = pdata.get('person', {}).get('fullName', 'Unknown')
                 b_stats = pdata.get('stats', {}).get('batting', {})
                 p_stats = pdata.get('stats', {}).get('pitching', {})
                 
-                # Ekstrak Hitter (Hanya yang sudah memukul)
+                # Ekstrak Hitter (Hanya yang sudah mendapat giliran memukul / Plate Appearance > 0)
                 if b_stats and b_stats.get('plateAppearances', 0) > 0:
                     hitters.append({
                         'Team': abbr, 'Name': name,
                         'AB': b_stats.get('atBats', 0), 'R': b_stats.get('runs', 0),
                         'H': b_stats.get('hits', 0), 'HR': b_stats.get('homeRuns', 0),
                         'RBI': b_stats.get('rbi', 0), 
-                        'TB': b_stats.get('totalBases', b_stats.get('hits',0)) # Fallback if missing
+                        'TB': b_stats.get('totalBases', b_stats.get('hits', 0))
                     })
                 
-                # Ekstrak Pitcher (Hanya yang sudah melempar)
+                # Ekstrak Pitcher (Hanya yang sudah melempar ke pemukul lawan)
                 if p_stats and p_stats.get('battersFaced', 0) > 0:
                     ip = str(p_stats.get('inningsPitched', '0.0'))
                     parts = ip.split('.')
@@ -107,9 +111,8 @@ def get_live_boxscore(game_id, away_abbr, home_abbr):
                     })
                     
         return pd.DataFrame(hitters), pd.DataFrame(pitchers)
-    except:
+    except Exception as e:
         return pd.DataFrame(), pd.DataFrame()
-
 
 playing_teams, today_matchups, player_team_map, game_details = get_daily_schedule()
 df_hitters, df_pitchers = load_local_data()
