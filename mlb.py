@@ -321,16 +321,24 @@ else:
             with c_mak1:
                 st.markdown(f"#### 🏟️ {g_sel['away']} (Away)")
                 xba_a, xslg_a = (h_away['xBA'].mean(), h_away['xSLG'].mean()) if not h_away.empty else (0.240, 0.400)
-                proj_r_a = round((h_away['xwOBA_vs_R'].mean() * 12) + (xslg_a * 2), 1) if not h_away.empty else 4.0
+                
+                # Injeksi Pengaruh Bullpen Lawan (b_era_home) ke Proyeksi Away
+                bp_mod_a = b_era_home / 4.00 
+                proj_r_a = round(((h_away['xwOBA_vs_R'].mean() * 12) + (xslg_a * 2)) * bp_mod_a, 1) if not h_away.empty else round(4.0 * bp_mod_a, 1)
+                
                 st.write(f"📈 Proyeksi Team Runs: **{proj_r_a}**")
-                st.caption(f"🏏 Proyeksi Singles: **{round(xba_a * 25, 1)}** | Doubles: **{round(xslg_a * 4.5, 1)}**")
+                st.caption(f"🏏 Proyeksi Singles: **{round((xba_a * 25) * bp_mod_a, 1)}** | Doubles: **{round((xslg_a * 4.5) * bp_mod_a, 1)}**")
                 st.write(f"🛡️ **Team Bullpen ERA:** {b_era_away}")
             with c_mak2:
                 st.markdown(f"#### 🏠 {g_sel['home']} (Home)")
                 xba_h, xslg_h = (h_home['xBA'].mean(), h_home['xSLG'].mean()) if not h_home.empty else (0.240, 0.400)
-                proj_r_h = round((h_home['xwOBA_vs_R'].mean() * 12) + (xslg_h * 2), 1) if not h_home.empty else 4.0
+                
+                # Injeksi Pengaruh Bullpen Lawan (b_era_away) ke Proyeksi Home
+                bp_mod_h = b_era_away / 4.00
+                proj_r_h = round(((h_home['xwOBA_vs_R'].mean() * 12) + (xslg_h * 2)) * bp_mod_h, 1) if not h_home.empty else round(4.0 * bp_mod_h, 1)
+                
                 st.write(f"📈 Proyeksi Team Runs: **{proj_r_h}**")
-                st.caption(f"🏏 Proyeksi Singles: **{round(xba_h * 25, 1)}** | Doubles: **{round(xslg_h * 4.5, 1)}**")
+                st.caption(f"🏏 Proyeksi Singles: **{round((xba_h * 25) * bp_mod_h, 1)}** | Doubles: **{round((xslg_h * 4.5) * bp_mod_h, 1)}**")
                 st.write(f"🛡️ **Team Bullpen ERA:** {b_era_home}")
             
             st.divider()
