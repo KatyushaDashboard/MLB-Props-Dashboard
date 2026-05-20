@@ -369,7 +369,7 @@ else:
                 st.caption("SOP: Mencari 1 laga harian di mana tim lawan memiliki Bullpen ERA paling hancur untuk dieksploitasi sampai akhir laga.")
                 
                 best_sgp_game = df_v.sort_values('Opp_Bullpen_ERA', ascending=False).iloc[0]['Game']
-                df_sgp_match = df_v[df_v['Game'] == best_g].sort_values('Veto_Score', ascending=False).head(3)
+                df_sgp_match = df_v[df_v['Game'] == best_sgp_game].sort_values('Veto_Score', ascending=False).head(3)
                 
                 st.markdown(f"**📍 Target Match:** {best_sgp_game} *(Mengincar Bullpen Lawan dengan ERA: {df_v.sort_values('Opp_Bullpen_ERA', ascending=False).iloc[0]['Opp_Bullpen_ERA']} 🟥)*")
                 l_no = 1
