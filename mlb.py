@@ -203,11 +203,25 @@ else:
                                 p_match = df_p_today[(df_p_today['Team'] == p_team) & (df_p_today['Name'].str.contains(last_name, case=False, na=False))]
                                 if not p_match.empty:
                                     p_stat = p_match.iloc[0]
+                                    
+                                    # Tarik data dari CSV
                                     xba_alwd = p_stat.get('xBA Allowed', 0.250)
                                     xwoba_alwd = p_stat.get('xwOBA Allowed', 0.320)
+                                    k_9 = p_stat.get('K/9', 8.0)
+                                    k_pct = p_stat.get('K%', 20.0)
+                                    
+                                    # Logika Mesin AI untuk O/U Pitcher
                                     hit_rec = "OVER Hit Allowed" if xba_alwd >= 0.250 else "UNDER Hit Allowed"
                                     out_rec = "UNDER Outs Recorded" if xwoba_alwd >= 0.330 else "OVER Outs Recorded"
-                                    st.info(f"⚾ **{p_stat['Name']}** ({p_team} - {p_hand})\n\n↳ **Target 1: {hit_rec}** *(xBA Allowed: {xba_alwd})*\n\n↳ **Target 2: {out_rec}** *(xwOBA Allowed: {xwoba_alwd})*")
+                                    
+                                    if k_9 >= 9.5 or k_pct >= 25.0:
+                                        so_rec = "🔥 OVER Strikeouts (Raja K)"
+                                    elif k_9 <= 7.5 or k_pct <= 18.0:
+                                        so_rec = "🧊 UNDER Strikeouts (Pitcher Kontak)"
+                                    else:
+                                        so_rec = "⚖️ NO BET Strikeouts (Rata-rata)"
+                                        
+                                    st.info(f"⚾ **{p_stat['Name']}** ({p_team} - {p_hand})\n\n↳ **Target 1: {so_rec}** *(K/9: {k_9} | K%: {k_pct}%)*\n\n↳ **Target 2: {hit_rec}** *(xBA Allowed: {xba_alwd})*\n\n↳ **Target 3: {out_rec}** *(xwOBA Allowed: {xwoba_alwd})*")
                                 else: st.write(f"⚾ **{p_name}** ({p_team} - {p_hand}) - *Metrik Statcast belum cukup*")
                             else: st.write(f"⚾ **Pitcher Belum Ditentukan** ({p_team})")
 
