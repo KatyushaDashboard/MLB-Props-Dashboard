@@ -7,14 +7,17 @@ from datetime import datetime
 st.set_page_config(page_title="MLB AI Props Dashboard", layout="wide")
 st.title("⚾ MLB Daily Matchup, AI Predictions & Parlay Command Center")
 
-# --- 1. ZONA WAKTU ---
-def get_mlb_date():
-    wib_tz = pytz.timezone('Asia/Jakarta')
-    now_est = datetime.now(wib_tz).astimezone(pytz.timezone('US/Eastern'))
-    return now_est.strftime('%m/%d/%Y'), now_est.strftime('%Y-%m-%d')
+# --- 1. ZONA WAKTU & TIME MACHINE ---
+wib_tz = pytz.timezone('Asia/Jakarta')
+now_est = datetime.now(wib_tz).astimezone(pytz.timezone('US/Eastern')).date()
 
-mlb_date_str, mlb_date_api = get_mlb_date()
-st.write(f"📅 **Jadwal Pertandingan (US Time):** {mlb_date_str}")
+# Fitur Mesin Waktu (Date Picker) di Sidebar
+st.sidebar.header("⚙️ Kontrol Waktu")
+st.sidebar.write("Gunakan kalender ini untuk mengecek prediksi dan hasil pertandingan kemarin/hari sebelumnya.")
+selected_date = st.sidebar.date_input("📅 Pilih Tanggal Laga (US Time):", now_est)
+mlb_date_str = selected_date.strftime('%m/%d/%Y')
+
+st.write(f"📅 **Menampilkan Data Untuk Tanggal (US Time):** {mlb_date_str}")
 
 team_mapper = {
     "Arizona Diamondbacks": "ARI", "Atlanta Braves": "ATL", "Baltimore Orioles": "BAL",
@@ -32,8 +35,7 @@ team_mapper = {
 # --- 2. TARIK JADWAL & PROBABLE PITCHERS ---
 @st.cache_data(ttl=86400)
 def get_pitcher_hand(name):
-    """Mencari tangan pelempar (L/R) dengan interogasi ID MLB profil"""
-    if not name or name in ['Unknown Pitcher', 'Unknown', 'TBD']: return "-"
+    if not name or str(name).strip() == "" or name in ['Unknown Pitcher', 'Unknown', 'TBD']: return "-"
     try:
         res = statsapi.lookup_player(name)
         if not res: return "-"
@@ -45,8 +47,8 @@ def get_pitcher_hand(name):
         return "-"
 
 @st.cache_data(ttl=1800)
-def get_daily_schedule():
-    games = statsapi.schedule(date=mlb_date_str)
+def get_daily_schedule(target_date):
+    games = statsapi.schedule(date=target_date)
     playing_teams, today_matchups, player_to_team, game_details = [], [], {}, []
     
     for game in games:
@@ -102,37 +104,31 @@ def get_live_boxscore(game_id, away_abbr, home_abbr):
                 if b and b.get('plateAppearances', 0) > 0:
                     hitters.append({'Team': abbr, 'Name': name, 'AB': b.get('atBats', 0), 'R': b.get('runs', 0), 'H': b.get('hits', 0), 'HR': b.get('homeRuns', 0), 'RBI': b.get('rbi', 0), 'TB': b.get('totalBases', b.get('hits', 0))})
                 if p and p.get('battersFaced', 0) > 0:
-                    pitchers.append({
-                        'Team': abbr, 
-                        'Name': name, 
-                        'IP': str(p.get('inningsPitched', '0.0')), 
-                        'H Allowed': p.get('hits', 0), 
-                        'R Allowed': p.get('runs', 0), 
-                        'SO': p.get('strikeOuts', 0)
-                    })
+                    pitchers.append({'Team': abbr, 'Name': name, 'IP': str(p.get('inningsPitched', '0.0')), 'H Allowed': p.get('hits', 0), 'R Allowed': p.get('runs', 0), 'SO': p.get('strikeOuts', 0)})
         return pd.DataFrame(hitters), pd.DataFrame(pitchers)
     except: return pd.DataFrame(), pd.DataFrame()
 
-playing_teams, today_matchups, player_team_map, game_details = get_daily_schedule()
+# Perhatikan bahwa sekarang get_daily_schedule menerima mlb_date_str
+playing_teams, today_matchups, player_team_map, game_details = get_daily_schedule(mlb_date_str)
 df_hitters, df_pitchers = load_local_data()
+
 if not df_hitters.empty: df_hitters.insert(1, 'Team', df_hitters['Name'].map(player_team_map))
 if not df_pitchers.empty: df_pitchers.insert(1, 'Team', df_pitchers['Name'].map(player_team_map))
 
 # --- UI MAIN CONTAINER ---
 if not today_matchups:
-    st.warning("Tidak ada jadwal pertandingan MLB hari ini.")
+    st.warning("Tidak ada jadwal pertandingan MLB pada tanggal ini.")
 else:
-    st.markdown("### 🏟️ Slate Summary (Pertandingan Hari Ini)")
+    st.markdown("### 🏟️ Slate Summary")
     cols = st.columns(min(len(today_matchups), 6))
     for i, m in enumerate(today_matchups): cols[i % 6].info(m)
 
     tabs = st.tabs([
         "Pitcher Matchups", "Hitter Props", "🔥 Daily Top Picks", 
-        "🚀 AI Predictions", "📡 Live Report", "📈 AI Tracker", 
+        "🚀 AI Predictions", "📡 Live / Final Report", "📈 AI Tracker", 
         "🔮 SGP Builder", "🌍 Cross-Game Parlay", "🎯 FINAL SLIPS"
     ])
 
-    # --- TAB 1: PITCHER MATCHUPS ---
     with tabs[0]:
         st.subheader("Pitcher Metrics Allowed (Statcast)")
         if not df_pitchers.empty:
@@ -140,7 +136,6 @@ else:
             allowed_metrics = [c for c in ['xwOBA Allowed', 'xSLG Allowed', 'xBA Allowed'] if c in df_p_today.columns]
             st.dataframe(df_p_today.style.background_gradient(cmap='RdYlGn', subset=allowed_metrics) if allowed_metrics else df_p_today, use_container_width=True, height=500)
 
-    # --- TAB 2: HITTER PROPS ---
     with tabs[1]:
         st.subheader("Hitter Advanced & Platoon Metrics")
         if not df_hitters.empty:
@@ -152,7 +147,7 @@ else:
             metrics = [c for c in display_df.columns if any(k in c for k in ['xwOBA', 'xBA', 'xSLG', 'HardHit'])]
             st.dataframe(display_df.style.background_gradient(cmap='RdYlGn', subset=metrics) if metrics else display_df, use_container_width=True, height=500)
 
-    # --- TAB 3: DAILY TOP PICKS ---
+    # --- TAB 3: DAILY TOP PICKS (DENGAN FIX INDEX ERROR PITCHER) ---
     with tabs[2]:
         st.subheader("🤖 Rekomendasi Pick Per Pertandingan")
         if not df_hitters.empty and not df_pitchers.empty:
@@ -166,6 +161,7 @@ else:
                     game_teams = [game['away'], game['home']]
                     h_df = df_h_today[df_h_today['Team'].isin(game_teams)]
                     col1, col2 = st.columns(2)
+                    
                     with col1:
                         st.markdown(f"### 🏏 Hitter Picks")
                         if not h_df.empty:
@@ -187,10 +183,12 @@ else:
                             if 'xBA' in h_df.columns:
                                 top_xba = h_df.sort_values(by='xBA', ascending=False).iloc[0]
                                 st.success(f"**5. Over Hit:** {top_xba['Name']} ({top_xba['Team']})\n\n↳ *Alasan: xBA tertinggi (Raja Kontak) di {top_xba['xBA']}*")
+                    
                     with col2:
                         st.markdown("### 🎯 Probable Pitchers (O/U)")
                         for p_name, p_team, p_hand in [(game['away_pitcher'], game['away'], game['away_hand']), (game['home_pitcher'], game['home'], game['home_hand'])]:
-                            if p_name != 'Unknown Pitcher':
+                            # FIX ERROR: Pastikan p_name adalah string valid dan tidak kosong
+                            if p_name and isinstance(p_name, str) and p_name.strip() and p_name not in ['Unknown Pitcher', 'Unknown', 'TBD']:
                                 last_name = p_name.split()[-1]
                                 p_match = df_p_today[(df_p_today['Team'] == p_team) & (df_p_today['Name'].str.contains(last_name, case=False, na=False))]
                                 if not p_match.empty:
@@ -201,8 +199,9 @@ else:
                                     out_rec = "UNDER Outs Recorded" if xwoba_alwd >= 0.330 else "OVER Outs Recorded"
                                     st.info(f"⚾ **{p_stat['Name']}** ({p_team} - {p_hand})\n\n↳ **Target 1: {hit_rec}** *(xBA Allowed: {xba_alwd})*\n\n↳ **Target 2: {out_rec}** *(xwOBA Allowed: {xwoba_alwd})*")
                                 else: st.write(f"⚾ **{p_name}** ({p_team} - {p_hand}) - *Metrik Statcast belum cukup*")
+                            else:
+                                st.write(f"⚾ **Pitcher Belum Ditentukan** ({p_team})")
 
-    # --- TAB 4: AI PREDICTIONS (KEMBALI 20 PEMAIN UTUH PER GAME) ---
     with tabs[3]:
         st.subheader("🚀 AI Prop Probability Model")
         if not df_hitters.empty:
@@ -240,13 +239,12 @@ else:
                                 st.write("🏏 **Top 5 Hit Index & Platoon:**")
                                 st.dataframe(home_df.sort_values('Hit_Prob_Score', ascending=False).head(5)[hit_cols], hide_index=True, use_container_width=True)
 
-    # --- TAB 5: LIVE REPORT (TIDAK AKAN BLANK JIKA MATCH BELUM DIMULAI) ---
     with tabs[4]:
-        st.subheader("📡 Live Report & Hasil Pemain Hari Ini")
+        st.subheader("📡 Live Report & Final Boxscore")
         for game in game_details:
             if game['status'] in ['Scheduled', 'Pre-Game', 'Warmup']:
                 with st.expander(f"⏳ {game['away']} @ {game['home']}", expanded=False): 
-                    st.info("Pertandingan belum dimulai harian.")
+                    st.info("Pertandingan belum dimulai.")
                 continue
             with st.expander(f"🔥 {game['away']} @ {game['home']} - {game['status']}", expanded=False):
                 live_h, live_p = get_live_boxscore(game['game_id'], game['away'], game['home'])
@@ -262,7 +260,6 @@ else:
                         st.dataframe(live_p[['Team', 'Name', 'IP', 'H Allowed', 'R Allowed', 'SO']], hide_index=True, use_container_width=True)
                 else: st.write("Sedang menyinkronkan data boxscore...")
 
-    # --- TAB 6: ACCURACY TRACKER ---
     with tabs[5]:
         st.subheader("📈 AI Model Accuracy Tracker (22 Picks Per Game)")
         if not df_hitters.empty:
@@ -294,7 +291,6 @@ else:
                             v_rows.append({'Tim': t['team'], 'Nama Pemain': t['name'], 'Kategori Taruhan': t['prop'], 'Hasil Riil': field_res, 'Status Slip': status})
                         st.dataframe(pd.DataFrame(v_rows), hide_index=True, use_container_width=True)
 
-    # --- TAB 7: SGP BUILDER (KEMBALI FULL DATA MAKRO + H2H + ML) ---
     with tabs[6]:
         st.subheader("🔮 AI Game Props & Same Game Parlay (SGP) Builder")
         if not game_details:
@@ -355,12 +351,11 @@ else:
                 for _, r in m_hitters.sort_values('xSLG', ascending=False).head(4).iterrows():
                     st.write(f"- ⚾ **{r['Name']}** ({r['Team']}) ➔ **OVER 1.5 Total Bases** *(xSLG: {r['xSLG']})*")
 
-    # --- TAB 8: CROSS-GAME MULTI-MATCH (KEMBALI FULL 5 SLIP) ---
     with tabs[7]:
         st.subheader("🌍 Cross-Game Multi-Match Parlay Engine")
         st.write("Sistem menyaring secara ketat maksimal 1 pemain per pertandingan untuk dikombinasikan lintas laga harian.")
         if len(game_details) < 2: 
-            st.warning("⚠️ Diperlukan minimal 2 pertandingan aktif hari ini.")
+            st.warning("⚠️ Diperlukan minimal 2 pertandingan aktif di tanggal ini.")
         elif not df_hitters.empty:
             pool_hit, pool_power, pool_mix = [], [], []
             for game in game_details:
@@ -394,7 +389,6 @@ else:
                     prop_t = "OVER 0.5 HIT" if i % 2 == 0 else "OVER 1.5 TOTAL BASES"
                     st.warning(f"**Leg {i+1}:** {pool_hit[i]['name']} ({pool_hit[i]['team']}) ➔ **{prop_t}** *(Laga: {pool_hit[i]['game']})*")
 
-    # --- TAB 9: THE FINAL 5 SLIPS (VETO & AUTO-MATCHING) ---
     with tabs[8]:
         st.subheader("🎯 THE FINAL 5 SLIPS (Vetoed & AI Optimized)")
         st.write("Kombinasi taktis berbasis SOP: Veto Platoon (xwOBA > 0.340) ➔ Diversifikasi Lintas Laga ➔ Korelasi Match ➔ HR Specialized Slips.")
@@ -417,7 +411,7 @@ else:
             
             df_v = pd.DataFrame(vetoed)
             if df_v.empty:
-                st.error("🚨 PERINGATAN: Tidak ada pemain lolos Veto Platoon hari ini (Semua skor harian vs Pitcher < 0.340).")
+                st.error("🚨 PERINGATAN: Tidak ada pemain lolos Veto Platoon (Semua skor vs Pitcher < 0.340).")
             else:
                 st.info(f"✅ Veto Engine Selesai: Berhasil menyaring **{len(df_v)} pemain** dengan indeks kekuatan hijau pekat.")
                 
@@ -457,7 +451,6 @@ else:
                         f_p = df_pitchers.sort_values('xBA Allowed', ascending=False).iloc[0]
                         st.error(f"**Leg 4 (Pitcher Fade):**\n\n{f_p['Name']} ➔ **OVER HIT ALLOWED**")
 
-                # --- SLIP 4 & 5: THE SPECIAL HOME RUN SPECIALS ---
                 st.divider()
                 st.markdown("### 💣 THE HOME RUN SPECIALS (High Risk / High Reward)")
                 c_hr1, c_hr2 = st.columns(2)
