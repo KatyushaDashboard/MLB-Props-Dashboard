@@ -115,9 +115,12 @@ def get_live_boxscore(game_id, away_abbr, home_abbr):
 playing_teams, today_matchups, player_team_map, game_details = get_daily_schedule(mlb_date_str)
 df_hitters, df_pitchers = load_local_data()
 
-if not df_hitters.empty: df_hitters.insert(1, 'Team', df_hitters['Name'].map(player_team_map))
-if not df_pitchers.empty: df_pitchers.insert(1, 'Team', df_pitchers['Name'].map(player_team_map))
-
+# Tambahkan pengecekan biar gak bentrok
+if not df_hitters.empty and 'Team' not in df_hitters.columns: 
+    df_hitters.insert(1, 'Team', df_hitters['Name'].map(player_team_map))
+if not df_pitchers.empty and 'Team' not in df_pitchers.columns: 
+    df_pitchers.insert(1, 'Team', df_pitchers['Name'].map(player_team_map))
+    
 # --- UI MAIN CONTAINER ---
 if not today_matchups:
     st.warning("Tidak ada jadwal pertandingan MLB pada tanggal ini.")
