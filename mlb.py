@@ -383,7 +383,7 @@ else:
                 st.markdown("---")
                 st.markdown("### 🎰 THE DEGENERATE LOTTO & HOME RUN SPECIALS (High Risk / Low Stake)")
                 c_hr1, c_hr2 = st.columns(2)
-                used_lotto_names = set()
+                used_hr_names = set()
                 
                 with c_hr1:
                     st.markdown("#### 🧨 SLIP 4: Vetoed Elite HR Parlay (3 Legs)")
