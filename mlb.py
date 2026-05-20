@@ -439,21 +439,23 @@ else:
                 
                 st.markdown("---")
                 st.markdown("### 🎯 SLIP 1: The Sniper Parlay (Pure Data - Dynamic Sizing)")
-                st.caption("SOP Ketat: Wajib lolos Veto (>0.340) DAN wajib memukul di urutan Top 5 Batting Order (Jatah PA tinggi).")
+                st.caption("SOP Ketat: Wajib lolos Veto (>0.340) DAN prioritas urutan Top 5 Batting Order.")
                 
+                # Filter utama: Cari yang urutan pukulnya 1-5
                 df_sniper_pool = df_v[df_v['Batting_Order'] <= 5].sort_values('xBA', ascending=False)
                 
+                # FALLBACK (Kopling Otomatis): Kalau kosong, abaikan urutan pukul, ambil xBA tertinggi yang lolos Veto
                 if df_sniper_pool.empty:
-                    st.warning("Tidak ada pemain di urutan pukul 1-5 yang memiliki metrik Platoon hijau hari ini.")
-                else:
-                    legs_count = min(len(df_sniper_pool), 3)
-                    sniper_legs = df_sniper_pool.head(legs_count)
-                    st.write(f"💡 *Sistem merekomendasikan tiket **{legs_count}-Leg Parlay** berdasarkan ketersediaan data murni hari ini.*")
-                    l_no = 1
-                    for _, r in sniper_legs.iterrows():
-                        prop = "OVER 0.5 HIT" if l_no <= 2 else "OVER 1.5 TOTAL BASES"
-                        st.success(f"**Leg {l_no}:** {r['Name']} ({r['Team']}) ➔ **{prop}** *(Urutan Pukul #{r['Batting_Order']} | vs {r['Opp_Pitcher']} 🟢)*")
-                        l_no += 1
+                    st.info("⚠️ Data urutan pukul 1-5 kosong. Sistem mengambil alih dengan pemain xBA tertinggi dari seluruh daftar Veto.")
+                    df_sniper_pool = df_v.sort_values('xBA', ascending=False)
+                
+                legs_count = min(len(df_sniper_pool), 3)
+                st.write(f"💡 *Sistem merekomendasikan tiket **{legs_count}-Leg Parlay** berdasarkan ketersediaan data murni hari ini.*")
+                l_no = 1
+                for _, r in df_sniper_pool.head(legs_count).iterrows():
+                    prop = "OVER 0.5 HIT" if l_no <= 2 else "OVER 1.5 TOTAL BASES"
+                    st.success(f"**Leg {l_no}:** {r['Name']} ({r['Team']}) ➔ **{prop}** *(Urutan Pukul #{r.get('Batting_Order', '?')} | vs {r['Opp_Pitcher']} 🟢)*")
+                    l_no += 1
 
                 st.markdown("---")
                 st.markdown("### 🔥 SLIP 2: The Hot Hand Parlay (Momentum Wangi L14)")
