@@ -82,12 +82,28 @@ for team_id, team_abbr in team_mapping.items():
             if position == 'P':
                 # --- LOGIKA PITCHER ---
                 era, whip, xba_alwd, xwoba_alwd, xslg_alwd = 4.50, 1.30, 0.250, 0.320, 0.400
+                k_pct, k_9 = 20.0, 8.0 # Default Strikeout Rate
+                
                 for st in stats_list:
                     if st['group']['displayName'] == 'pitching' and st['type']['displayName'] == 'season':
                         s = st.get('splits', [{}])[0].get('stat', {})
                         era = float(s.get('era', 4.50))
                         whip = float(s.get('whip', 1.30))
-                        # Simulasi metrik advanced dari stat standar (karena statcast murni sulit ditarik via base statsapi)
+                        
+                        # --- HACK K% DAN K/9 ---
+                        so = int(s.get('strikeOuts', 0))
+                        bf = int(s.get('battersFaced', 1))
+                        
+                        # Mengakali angka inning desimal (misal 5.1 = 5.33 inning)
+                        ip_str = str(s.get('inningsPitched', '1.0'))
+                        ip_parts = ip_str.split('.')
+                        ip = float(ip_parts[0]) + (float(ip_parts[1])/3 if len(ip_parts) > 1 else 0)
+                        if ip == 0: ip = 1.0
+                        
+                        k_pct = round((so / bf) * 100, 1) if bf > 0 else 0.0
+                        k_9 = round((so * 9) / ip, 1) if ip > 0 else 0.0
+                        
+                        # Simulasi metrik advanced dari stat standar
                         xba_alwd = round(float(s.get('avg', 0.250)) + 0.010, 3) 
                         xwoba_alwd = round(float(s.get('obp', 0.320)) + 0.015, 3)
                         xslg_alwd = round(float(s.get('slg', 0.400)) + 0.020, 3)
@@ -95,6 +111,7 @@ for team_id, team_abbr in team_mapping.items():
                 pitchers_data.append({
                     'Name': p_name, 'Team': team_abbr,
                     'ERA': era, 'WHIP': whip,
+                    'K%': k_pct, 'K/9': k_9,
                     'xBA Allowed': xba_alwd, 'xwOBA Allowed': xwoba_alwd, 'xSLG Allowed': xslg_alwd,
                     'Bullpen_ERA': bullpen_era_dict.get(team_abbr, 4.15)
                 })
