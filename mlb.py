@@ -554,3 +554,55 @@ else:
                     for _, r in spike_pool.head(legs_lotto).iterrows():
                         st.info(f"**Leg {l_no}:** {r['Name']} ({r['Team']}) ➔ **OVER 0.5 HOME RUN / OVER 1.5 TB**\n\n↳ *L14 Spike: {r['xwOBA_L14']} (Meledak +{round(r['Momentum_Spike'], 3)} dari {r['xwOBA']} musimannya)*")
                         l_no += 1
+
+                st.markdown("---")
+                st.markdown("### 🏆 SLIP 7: THE VEGAS COMMAND CENTER (ML, Handicap, & Team Runs Summary)")
+                st.caption("SOP: Merangkum seluruh proyeksi Moneyline, Handicap, dan Total Runs dari seluruh laga hari ini (Data otomatis tersinkronisasi dari perhitungan akurat Tab 7).")
+                
+                summary_rows = []
+                for game in game_details:
+                    h_away = df_hitters[df_hitters['Team'] == game['away']]
+                    h_home = df_hitters[df_hitters['Team'] == game['home']]
+                    
+                    b_era_away = fallback_bullpen_era.get(game['away'], 4.15)
+                    b_era_home = fallback_bullpen_era.get(game['home'], 4.15)
+                    
+                    score_away = h_away['xwOBA_vs_R'].mean() if not h_away.empty else 0.300
+                    score_home = h_home['xwOBA_vs_R'].mean() if not h_home.empty else 0.300
+                    
+                    # 1. Perhitungan Baku Moneyline & Handicap (Faktor Bullpen & Hitter)
+                    diff = (score_away - (b_era_home / 15)) - (score_home - (b_era_away / 15))
+                    if diff > 0:
+                        fav_team, dog_team, win_prob = game['away'], game['home'], min(round(55 + (abs(diff) * 150), 1), 78.0)
+                    else:
+                        fav_team, dog_team, win_prob = game['home'], game['away'], min(round(55 + (abs(diff) * 150), 1), 78.0)
+                        
+                    opp_b_era = b_era_home if fav_team == game['away'] else b_era_away
+                    if win_prob >= 60.0 and opp_b_era >= 4.00: 
+                        hc_rec = f"📐 {fav_team} -1.5"
+                    else: 
+                        hc_rec = f"📐 {dog_team} +1.5"
+                        
+                    # 2. Perhitungan Proyeksi Runs (Sudah Dikunci Faktor Multiplier Bullpen Lawan)
+                    xslg_a = h_away['xSLG'].mean() if not h_away.empty else 0.400
+                    bp_mod_a = b_era_home / 4.00 
+                    proj_r_a = round(((h_away['xwOBA_vs_R'].mean() * 12) + (xslg_a * 2)) * bp_mod_a, 1) if not h_away.empty else round(4.0 * bp_mod_a, 1)
+                    
+                    xslg_h = h_home['xSLG'].mean() if not h_home.empty else 0.400
+                    bp_mod_h = b_era_away / 4.00
+                    proj_r_h = round(((h_home['xwOBA_vs_R'].mean() * 12) + (xslg_h * 2)) * bp_mod_h, 1) if not h_home.empty else round(4.0 * bp_mod_h, 1)
+                    
+                    total_match_runs = round(proj_r_a + proj_r_h, 1)
+                    
+                    # Masukkan ke dalam database ringkasan
+                    summary_rows.append({
+                        'Pertandingan': game['text'],
+                        '🔮 Moneyline (Win Prob)': f"{fav_team} ({win_prob}%)",
+                        'Spread / Runline': hc_rec,
+                        f'📈 Runs {game["away"]}': proj_r_a,
+                        f'🏠 Runs {game["home"]}': proj_r_h,
+                        '📊 Total O/U Game': total_match_runs
+                    })
+                
+                df_summary = pd.DataFrame(summary_rows)
+                st.dataframe(df_summary, hide_index=True, use_container_width=True)
