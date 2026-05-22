@@ -519,7 +519,7 @@ else:
                 st.divider()
 
                 # --- SLIP 5: THE GOLDEN STANDARD HR (STRICT DATA BASED) ---
-                st.markdown("#### 💎 SLIP 5: Golden Standard HR (2-3 Legs)")
+                st.markdown("#### 💎 SLIP 5: Golden Standard HR (2-5 Legs)")
                 st.caption("SOP Kejam: Wajib memiliki xwOBA > 0.360 AND Barrel > 10% AND Max EV > 108 mph.")
                 
                 # Filter Pembunuh
@@ -528,7 +528,7 @@ else:
                 if golden_hr_pool.empty:
                     st.warning("⚠️ KOSONG (NO BET). Tidak ada pemain yang lolos ketiga filter mematikan ini secara bersamaan hari ini.")
                 else:
-                    legs_hr = min(len(golden_hr_pool), 3)
+                    legs_hr = min(len(golden_hr_pool), 5)
                     st.success(f"🔥 Radar mendeteksi {len(golden_hr_pool)} Monster HR hari ini!")
                     l_no = 1
                     for _, r in golden_hr_pool.sort_values('Barrel%', ascending=False).head(legs_hr).iterrows():
