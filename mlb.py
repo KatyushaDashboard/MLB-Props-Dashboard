@@ -539,7 +539,7 @@ else:
                 st.divider()
 
                 # --- SLIP 6: TRENDING POWER LOTTO (MOMENTUM SPIKE) ---
-                st.markdown("#### 🚀 SLIP 6: Trending Power Lotto (3-5 Legs)")
+                st.markdown("#### 🚀 SLIP 6: Trending Power Lotto (Top 10)")
                 st.caption("Mencari anomali pemain yang momentum L14-nya melonjak drastis di atas rata-rata musimannya.")
                 
                 # Filter Momentum: xwOBA 14 Hari naik drastis minimal +0.025 dari baseline musim, dan punya modal Barrel lumayan (>7%)
@@ -549,7 +549,7 @@ else:
                 if len(spike_pool) < 3:
                     st.warning("⚠️ Data momentum sedang landai. Tidak cukup pemain anomali untuk meracik Lotto 3-Leg hari ini.")
                 else:
-                    legs_lotto = min(len(spike_pool), 5)
+                    legs_lotto = min(len(spike_pool), 10)
                     l_no = 1
                     for _, r in spike_pool.head(legs_lotto).iterrows():
                         st.info(f"**Leg {l_no}:** {r['Name']} ({r['Team']}) ➔ **OVER 0.5 HOME RUN / OVER 1.5 TB**\n\n↳ *L14 Spike: {r['xwOBA_L14']} (Meledak +{round(r['Momentum_Spike'], 3)} dari {r['xwOBA']} musimannya)*")
