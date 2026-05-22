@@ -505,23 +505,52 @@ else:
                     l_no += 1
 
                 st.markdown("---")
-                st.markdown("### 🎰 THE DEGENERATE LOTTO & HOME RUN SPECIALS (High Risk / Low Stake)")
-                c_hr1, c_hr2 = st.columns(2)
+                st.markdown("### 💣 THE HOME RUN SPECIALS & LOTTO PARLAY")
+                
+                # --- SLIP 4: VETOED ELITE HR (STANDAR) ---
+                st.markdown("#### 🧨 SLIP 4: Standard Elite HR (3 Legs)")
+                st.caption("Pemain lolos Veto Platoon dengan kekuatan pukulan teratas hari ini.")
+                slip4 = df_v.sort_values('Barrel%', ascending=False).head(3)
                 used_hr_names = set()
+                for i, (idx, r) in enumerate(slip4.iterrows()):
+                    used_hr_names.add(r['Name'])
+                    st.error(f"**Leg {i+1}:** {r['Name']} ({r['Team']}) ➔ **OVER 0.5 HOME RUN** *(Barrel: {r['Barrel%']}% | vs {r['Opp_Pitcher']})*")
                 
-                with c_hr1:
-                    st.markdown("#### 🧨 SLIP 4: Vetoed Elite HR Parlay (3 Legs)")
-                    slip4 = df_v.sort_values('Barrel%', ascending=False).head(3)
-                    for i, (idx, r) in enumerate(slip4.iterrows()):
+                st.divider()
+
+                # --- SLIP 5: THE GOLDEN STANDARD HR (STRICT DATA BASED) ---
+                st.markdown("#### 💎 SLIP 5: Golden Standard HR (2-3 Legs)")
+                st.caption("SOP Kejam: Wajib memiliki xwOBA > 0.360 AND Barrel > 10% AND Max EV > 108 mph.")
+                
+                # Filter Pembunuh
+                golden_hr_pool = df_v[(df_v['xwOBA'] >= 0.360) & (df_v['Barrel%'] >= 10.0) & (df_v['Max EV'] >= 108.0)]
+                
+                if golden_hr_pool.empty:
+                    st.warning("⚠️ KOSONG (NO BET). Tidak ada pemain yang lolos ketiga filter mematikan ini secara bersamaan hari ini.")
+                else:
+                    legs_hr = min(len(golden_hr_pool), 3)
+                    st.success(f"🔥 Radar mendeteksi {len(golden_hr_pool)} Monster HR hari ini!")
+                    l_no = 1
+                    for _, r in golden_hr_pool.sort_values('Barrel%', ascending=False).head(legs_hr).iterrows():
                         used_hr_names.add(r['Name'])
-                        st.error(f"**Leg {i+1}:** {r['Name']} ({r['Team']}) ➔ **OVER 0.5 HOME RUN** *(Barrel: {r['Barrel%']}% | Order #{r['Batting_Order']})*")
+                        st.error(f"**Leg {l_no}:** {r['Name']} ({r['Team']}) ➔ **OVER 0.5 HOME RUN**\n\n↳ *(xwOBA: {r['xwOBA']} | Barrel: {r['Barrel%']}% | EV: {r['Max EV']})*")
+                        l_no += 1
+
+                st.divider()
+
+                # --- SLIP 6: TRENDING POWER LOTTO (MOMENTUM SPIKE) ---
+                st.markdown("#### 🚀 SLIP 6: Trending Power Lotto (3-5 Legs)")
+                st.caption("Mencari anomali pemain yang momentum L14-nya melonjak drastis di atas rata-rata musimannya.")
                 
-                with c_hr2:
-                    st.markdown("#### 🚀 SLIP 5: The Ultimate Lotto Longshot (5-7 Legs)")
-                    st.caption("Perkalian Odds Raksasa dari gabungan pemain lolos veto teratas lintas laga.")
-                    slip5 = df_v[~df_v['Name'].isin(used_hr_names)].sort_values('Max EV', ascending=False).head(5)
-                    if len(slip5) < 3:
-                        st.write("Data tidak cukup untuk menyusun Lotto tanpa duplikasi pemain.")
-                    else:
-                        for i, (idx, r) in enumerate(slip5.iterrows()):
-                            st.error(f"**Leg {i+1}:** {r['Name']} ({r['Team']}) ➔ **OVER 1.5 TOTAL BASES** *(Max EV: {r['Max EV']} Mph)*")
+                # Filter Momentum: xwOBA 14 Hari naik drastis minimal +0.025 dari baseline musim, dan punya modal Barrel lumayan (>7%)
+                df_v['Momentum_Spike'] = df_v['xwOBA_L14'] - df_v['xwOBA']
+                spike_pool = df_v[(~df_v['Name'].isin(used_hr_names)) & (df_v['Momentum_Spike'] >= 0.025) & (df_v['Barrel%'] >= 7.0)].sort_values('Momentum_Spike', ascending=False)
+                
+                if len(spike_pool) < 3:
+                    st.warning("⚠️ Data momentum sedang landai. Tidak cukup pemain anomali untuk meracik Lotto 3-Leg hari ini.")
+                else:
+                    legs_lotto = min(len(spike_pool), 5)
+                    l_no = 1
+                    for _, r in spike_pool.head(legs_lotto).iterrows():
+                        st.info(f"**Leg {l_no}:** {r['Name']} ({r['Team']}) ➔ **OVER 0.5 HOME RUN / OVER 1.5 TB**\n\n↳ *L14 Spike: {r['xwOBA_L14']} (Meledak +{round(r['Momentum_Spike'], 3)} dari {r['xwOBA']} musimannya)*")
+                        l_no += 1
